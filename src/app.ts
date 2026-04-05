@@ -1,4 +1,4 @@
 import { createApp } from 'nativescript-vue';
-import Registration from './components/Registration.vue';
+import Welcome from './components/Welcome.vue';
 
-createApp(Registration).start();
+createApp(Welcome).start();
