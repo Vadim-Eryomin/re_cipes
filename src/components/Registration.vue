@@ -21,6 +21,11 @@
                   textWrap="true" />
               </StackLayout>
               
+              <Label v-if="errorMessage" 
+                :text="errorMessage" 
+                class="text-red-500 text-center mb-2 text-sm"
+                textWrap="true" />
+              
               <StackLayout>
                 <GridLayout rows="auto" columns="19, *, auto" 
                   class="bg-[#E9E9ED] rounded-2xl px-4 py-5 mb-4"
@@ -121,10 +126,10 @@
                     @tap="togglePasswordVisibility('confirmPassword')" />
                 </GridLayout>
                 
-                <Button text="Зарегистрироваться"
+                <Button :text="isLoading ? 'Регистрация...' : 'Зарегистрироваться'"
                   class="rounded-2xl font-inter font-bold text-lg text-white px-4 py-4 mt-4"
-                  :class="isFormValid ? 'bg-[#F25C05]' : 'bg-[#969696]'"
-                  :isEnabled="isFormValid"
+                  :class="isFormValid && !isLoading ? 'bg-[#F25C05]' : 'bg-[#969696]'"
+                  :isEnabled="isFormValid && !isLoading"
                   textTransform="none"
                   @tap="onRegister"/>
                 
@@ -148,6 +153,7 @@
 import { defineComponent } from 'nativescript-vue';
 import Login from './Login.vue';
 import Main from './Main.vue';
+import api from '../../services/api';
 
 interface FormData {
   fullname: string;
@@ -168,7 +174,8 @@ export default defineComponent({
       focusedField: null as string | null,
       showPassword: false,
       showConfirmPassword: false,
-      isLoading: false
+      isLoading: false,
+      errorMessage: ''
     };
   },
   computed: {
@@ -184,36 +191,67 @@ export default defineComponent({
     togglePasswordVisibility(field: string): void {
       if (field === 'password') {
         this.showPassword = !this.showPassword;
-      } else {
+      } else if (field === 'confirmPassword') {
         this.showConfirmPassword = !this.showConfirmPassword;
       }
     },
     
-    onRegister(): void {
-      if (!this.isFormValid) return;
+    async onRegister(): Promise<void> {
+      if (this.form.password !== this.form.confirmPassword) {
+        this.errorMessage = 'Пароли не совпадают';
+        return;
+      }
+      
+      if (!this.isFormValid || this.isLoading) return;
       
       this.isLoading = true;
+      this.errorMessage = '';
       
-      setTimeout(() => {
-        this.isLoading = false;
+      try {
+        console.log('Sending registration request...');
+        
+        // Регистрация
+        await api.post('/users/signup', {
+          login: this.form.email,
+          password: this.form.password,
+          name: this.form.fullname
+        });
+        
         console.log('Registration successful');
         
+        const loginResponse = await api.post('/users/login', {
+          login: this.form.email,
+          password: this.form.password
+        });
+        
+        const token = loginResponse.access_token;
+        api.setToken(token);
+        
         this.$navigateTo(Main, {
-          transition: {
-            name: 'slideLeft',
-            duration: 300
-          },
+          transition: { name: 'slideLeft', duration: 300 },
           clearHistory: true
         });
-      }, 1000);
+        
+      } catch (error: any) {
+        console.error('Registration error:', error);
+        
+        if (error.response) {
+          if (error.response.status === 409) {
+            this.errorMessage = 'Пользователь с таким email уже существует';
+          } else {
+            this.errorMessage = error.response.data?.error || 'Ошибка сервера';
+          }
+        } else {
+          this.errorMessage = 'Нет соединения с сервером. Проверьте, запущен ли сервер.';
+        }
+      } finally {
+        this.isLoading = false;
+      }
     },
     
     goToLogin(): void {
       this.$navigateTo(Login, {
-        transition: {
-          name: 'fade',
-          duration: 300
-        }
+        transition: { name: 'fade', duration: 300 }
       });
     }
   }

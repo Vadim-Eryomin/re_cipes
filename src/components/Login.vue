@@ -21,12 +21,17 @@
                   textWrap="true" />
               </StackLayout>
               
+              <Label v-if="errorMessage" 
+                :text="errorMessage" 
+                class="text-red-500 text-center mb-2 text-sm"
+                textWrap="true" />
+              
               <StackLayout>
-                <GridLayout rows="auto" columns="19, *, auto" 
+                <GridLayout rows="auto" columns="19, *" 
                   class="bg-[#E9E9ED] rounded-2xl px-4 py-5 mb-4"
                   :class="[
                     'border-5',
-                    focusedField === 'email' || form.email ? 'border-[#F25C05]' : 'border-[#E9E9ED]'
+                    focusedField === 'email' ? 'border-[#F25C05]' : 'border-[#E9E9ED]'
                   ]">
                   
                   <Image col="0" src="~/assets/email.png" 
@@ -43,11 +48,11 @@
                     autocapitalizationType="none" />
                 </GridLayout>
 
-                <GridLayout rows="auto" columns="16, *, 20" 
+                <GridLayout rows="auto" columns="16, *" 
                   class="bg-[#E9E9ED] rounded-2xl px-4 py-5 mb-4"
                   :class="[
                     'border-5',
-                    focusedField === 'password' || form.password ? 'border-[#F25C05]' : 'border-[#E9E9ED]'
+                    focusedField === 'password' ? 'border-[#F25C05]' : 'border-[#E9E9ED]'
                   ]">
                   
                   <Image col="0" src="~/assets/key.png" 
@@ -55,7 +60,6 @@
                   
                   <TextField col="1" 
                     v-model="form.password"
-                    :secure="!showPassword"
                     hint="Пароль"
                     class="placeholder-[#969696] bg-transparent text-sm font-inter font-semibold ml-4"
                     :class="form.password ? 'text-[#1E1D2E]' : 'text-[#969696]'"
@@ -63,22 +67,16 @@
                     @blur="focusedField = null"
                     autocorrect="false"
                     autocapitalizationType="none" />
-                  
-                  <Image col="2" 
-                    :src="showPassword ? '~/assets/openeyes.png' : '~/assets/closeeyes.png'"
-                    :width="showPassword ? 24 : 18" 
-                    :height="showPassword ? 16 : 12" 
-                    @tap="togglePasswordVisibility" />
                 </GridLayout>
                 
                 <Label text="Забыли пароль?" 
                   class="text-[#969696] font-inter font-semibold text-sm text-right mb-4"
                   @tap="onForgotPassword"/>
                 
-                <Button text="Войти"
+                <Button :text="isLoading ? 'Вход...' : 'Войти'"
                   class="rounded-2xl font-inter font-bold text-lg text-white px-4 py-4 mb-4"
-                  :class="isFormValid ? 'bg-[#F25C05]' : 'bg-[#969696]'"
-                  :isEnabled="isFormValid"
+                  :class="isFormValid && !isLoading ? 'bg-[#F25C05]' : 'bg-[#969696]'"
+                  :isEnabled="isFormValid && !isLoading"
                   textTransform="none"
                   @tap="onLogin"/>
                 
@@ -102,6 +100,7 @@
 import { defineComponent } from 'nativescript-vue';
 import Registration from './Registration.vue';
 import Main from './Main.vue';
+import api from '../../services/api';
 
 export default defineComponent({
   data() {
@@ -111,8 +110,8 @@ export default defineComponent({
         password: ''
       },
       focusedField: null as string | null,
-      showPassword: false,
-      isLoading: false
+      isLoading: false,
+      errorMessage: ''
     };
   },
   computed: {
@@ -121,27 +120,44 @@ export default defineComponent({
     }
   },
   methods: {
-    togglePasswordVisibility(): void {
-      this.showPassword = !this.showPassword;
-    },
-    
-    onLogin(): void {
-      if (!this.isFormValid) return;
+    async onLogin(): Promise<void> {
+      if (!this.isFormValid || this.isLoading) return;
       
       this.isLoading = true;
+      this.errorMessage = '';
       
-      setTimeout(() => {
-        this.isLoading = false;
-        console.log('Login successful');
+      try {
+        console.log('Sending login request...');
+        const response = await api.post('/users/login', {
+          login: this.form.email,
+          password: this.form.password
+        });
+        
+        const token = response.access_token;
+        console.log('Login successful, token:', token);
+        
+        api.setToken(token);
         
         this.$navigateTo(Main, {
-          transition: { 
-            name: 'slideLeft', 
-            duration: 300 
-          },
+          transition: { name: 'slideLeft', duration: 300 },
           clearHistory: true
         });
-      }, 1000);
+        
+      } catch (error: any) {
+        console.error('Login error:', error);
+        
+        if (error.response) {
+          if (error.response.status === 401) {
+            this.errorMessage = 'Неверный email или пароль';
+          } else {
+            this.errorMessage = error.response.data?.error || 'Ошибка сервера';
+          }
+        } else {
+          this.errorMessage = 'Нет соединения с сервером. Проверьте, запущен ли сервер.';
+        }
+      } finally {
+        this.isLoading = false;
+      }
     },
     
     onForgotPassword(): void {
@@ -150,10 +166,7 @@ export default defineComponent({
     
     goToRegistration(): void {
       this.$navigateTo(Registration, {
-        transition: { 
-          name: 'fade', 
-          duration: 300 
-        }
+        transition: { name: 'fade', duration: 300 }
       });
     }
   }
