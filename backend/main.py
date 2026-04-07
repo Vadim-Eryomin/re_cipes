@@ -46,6 +46,7 @@ class Post(db.Model):
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
     text = db.Column(db.Text, nullable=False)
+    community = db.Column(db.String(100), nullable=True)
     recipe = db.Column(db.JSON, nullable=True)  # Список шагов
     ingredients = db.Column(db.JSON, nullable=True)  # Список ингредиентов
     medias = db.Column(db.JSON, nullable=True)  # Список URL
@@ -60,7 +61,11 @@ class Comment(db.Model):
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     post_id = db.Column(db.String(36), db.ForeignKey('post.id'), nullable=False)
     user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
+    parent_id = db.Column(db.String(36), db.ForeignKey('comment.id'), nullable=True)  # для вложенности
     text = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+
+    replies = db.relationship('Comment', backref=db.backref('parent', remote_side=[id]), lazy=True)
 
 
 class Like(db.Model):
@@ -109,6 +114,7 @@ def serialize_post(post):
     return {
         "id": post.id,
         "text": post.text,
+        "community": post.community,
         "recipe": post.recipe or [],
         "ingredients": post.ingredients or [],
         "medias": post.medias or [],
@@ -131,7 +137,9 @@ def serialize_comment(comment):
             "name": comment.author.name,
             "avatar_url": comment.author.avatar_url
         },
-        "text": comment.text
+        "text": comment.text,
+        "parent_id": comment.parent_id,
+        "created_at": comment.created_at.isoformat() + "Z"
     }
 
 
@@ -184,6 +192,13 @@ def get_user_profile(user_id):
     return jsonify(serialize_user(user)), 200
 
 
+@app.route('/users/me', methods=['GET'])
+@require_auth
+def get_my_profile():
+    user = request.current_user
+    return jsonify(serialize_user(user)), 200
+
+
 @app.route('/users/me', methods=['PUT'])
 @require_auth
 def update_me():
@@ -212,6 +227,7 @@ def create_post():
     post = Post(
         user_id=user.id,
         text=data.get('text', ''),
+        community=data.get('community'),
         recipe=data.get('recipe'),
         ingredients=data.get('ingredients'),
         medias=data.get('medias'),
@@ -244,6 +260,7 @@ def update_post(post_id):
 
     data = request.get_json()
     if 'text' in data: post.text = data['text']
+    if 'community' in data: post.community = data['community']
     if 'recipe' in data: post.recipe = data['recipe']
     if 'ingredients' in data: post.ingredients = data['ingredients']
     if 'medias' in data: post.medias = data['medias']
@@ -310,7 +327,7 @@ def add_comment(post_id):
 @app.route('/posts/<post_id>/comments', methods=['GET'])
 @require_auth
 def get_comments(post_id):
-    comments = Comment.query.filter_by(post_id=post_id).all()
+    comments = Comment.query.filter_by(post_id=post_id).order_by(Comment.created_at.asc()).all()
     return jsonify([serialize_comment(c) for c in comments]), 200
 
 
@@ -405,14 +422,102 @@ def upload_media():
     return jsonify({"url": url}), 200
 
 
-# Обслуживание загруженных файлов
-@app.route('/static/uploads/<filename>')
+@app.route('/static/uploads/<path:filename>')
 def uploaded_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
+# --- Заполнение БД моками ---
 
-# --- Запуск ---
+def seed_database():
+    if User.query.first() is not None:
+        return
+
+    users = []
+    for i in range(1, 6):
+        user = User(
+            login=f"user{i}@example.com",
+            password_hash=generate_password_hash("123456"),
+            name=f"User{i}",
+            avatar_url=f"/static/uploads/user_avatar{i}.png",
+            bio=f"Пользователь {i}"
+        )
+        db.session.add(user)
+        db.session.flush()
+        users.append(user)
+
+    author = users[0]
+    token = "test-token-123"
+    auth_token = AuthToken(user_id=author.id, token=token)
+    db.session.add(auth_token)
+
+    post = Post(
+        user_id=author.id,
+        text="Я сделала блины, зацените. Очень быстро и просто готовится. Займет не больше 10 минут. Рецепт моей любимой бабушки",
+        community="pancakes",
+        recipe=[
+            {"step": "В миске взбейте яйца, соль и сахар.", "media": "/static/uploads/step1.png"},
+            {"step": "Влейте половину молока, просейте муку и перемешайте до однородности.", "media": "/static/uploads/step2.png"},
+            {"step": "Добавьте оставшееся молоко и масло, ещё раз перемешайте.", "media": "/static/uploads/step3.png"}
+        ],
+        ingredients=[
+            {"name": "Молоко", "count": 500, "measure_name": "мл"},
+            {"name": "Яйца", "count": 2, "measure_name": "шт"},
+            {"name": "Мука", "count": 200, "measure_name": "г"},
+            {"name": "Сахар", "count": 2, "measure_name": "ст.л"},
+            {"name": "Соль", "count": 0.5, "measure_name": "ч.л"},
+            {"name": "Растительное масло", "count": 2, "measure_name": "ст.л"}
+        ],
+        medias=["/static/uploads/pancakes.jpg"],
+        disable_comments=False
+    )
+    db.session.add(post)
+    db.session.flush()
+
+    c1 = Comment(
+        post_id=post.id,
+        user_id=users[1].id,
+        parent_id=None,
+        text="Вау, это просто блинные чудеса! Никогда не думал, что можно так просто добиться идеальных дырочек. Вау, это просто блинные чудеса! Никогда не думал, что можно так просто добиться идеальных дырочек. Вау, это просто блинные чудеса! Никогда не думал, что можно так просто добиться идеальных дырочек.",
+        created_at=datetime.datetime.utcnow() - datetime.timedelta(days=1)
+    )
+    db.session.add(c1)
+    db.session.flush()
+
+    c2 = Comment(
+        post_id=post.id,
+        user_id=users[2].id,
+        parent_id=c1.id,
+        text="Рецепт оказался на удивление рабочим: всё чётко по шагам.",
+        created_at=datetime.datetime.utcnow() - datetime.timedelta(days=1)
+    )
+    db.session.add(c2)
+
+    c3 = Comment(
+        post_id=post.id,
+        user_id=users[3].id,
+        parent_id=c1.id,
+        text="Результат превзошёл все ожидания: блины получились тонкими и хрустящими.",
+        created_at=datetime.datetime.utcnow() - datetime.timedelta(hours=3)
+    )
+    db.session.add(c3)
+
+    c4 = Comment(
+        post_id=post.id,
+        user_id=users[4].id,
+        parent_id=None,
+        text="Признаюсь, я тот ещё блинопек. Но этот рецепт реально работает!",
+        created_at=datetime.datetime.utcnow() - datetime.timedelta(hours=21)
+    )
+    db.session.add(c4)
+
+    like = Like(post_id=post.id, user_id=author.id)
+    db.session.add(like)
+
+    db.session.commit()
+
+
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
-    app.run(debug=True, port=5000)
+        seed_database()
+    app.run(host="0.0.0.0", port=5000, debug=False)
