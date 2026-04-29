@@ -9,7 +9,12 @@
     "@nativescript/camera": "~5.0.0",
     "@nativescript/core": "~8.9.1",
     "@nativescript/imagepicker": "^5.0.0",
+    "@nativescript/secure-storage": "^4.0.1",
     "@xstate/vue": "^5.0.0",
+    "abort-controller": "^3.0.0",
+    "date-fns": "^4.1.0",
+    "fp-ts": "^2.16.11",
+    "io-ts": "^2.2.22",
     "nativescript-vue": "3.0.2",
     "xstate": "^5.30.0"
   },
