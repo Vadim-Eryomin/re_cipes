@@ -270,7 +270,6 @@ def delete_post(post_id):
 
 
 @app.route('/posts/feed', methods=['GET'])
-@require_auth
 def get_feed():
     limit = request.args.get('limit', 20, type=int)
     offset = request.args.get('offset', 0, type=int)
@@ -386,8 +385,9 @@ def unlike_post(post_id):
 # --- Routes: Media ---
 
 @app.route('/media/upload', methods=['POST'])
-@require_auth
 def upload_media():
+    print('gotcha')
+    print(request.files)
     if 'file' not in request.files:
         return jsonify({"error": "No file part"}), 400
 
@@ -416,3 +416,4 @@ if __name__ == '__main__':
     with app.app_context():
         db.create_all()
     app.run(debug=True, port=5000)
+    
