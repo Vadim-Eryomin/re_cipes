@@ -1,7 +1,13 @@
 import { createApp } from 'nativescript-vue';
-import Home from './components/Home.vue';
+import App from './App.vue';
+
+import AbortControllerPolyfill from 'abort-controller'
 
 import { init } from '@nativescript/background-http';
 init()
 
-createApp(Home).start();
+if (!globalThis.AbortController) {
+  globalThis.AbortController = AbortControllerPolyfill as unknown as typeof AbortController
+}
+
+createApp(App).start();
