@@ -15,7 +15,6 @@ import RecipeMake from './RecipeMake.vue';
 <template>
   <Frame>
     <RecipeMake />
-
   </Frame>
 </template>
 

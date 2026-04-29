@@ -11,6 +11,7 @@ import { usersService, postsService } from '~/init/services'
 import { ajaxService } from '~/init/ajax'
 import type { UserRecord } from '~/features/domain/users/models/user'
 import type { Post } from '~/features/domain/posts/models/post'
+import RecipeMake from './RecipeMake.vue';
 
 const navTop = ref(0)
 const navLeft = ref(0)
@@ -140,6 +141,10 @@ function goToMain() {
   $navigateTo(MainPage, { transition: { name: "slideLeft" } })
 }
 
+function goToCreation() {
+  $navigateTo(RecipeMake, { transition: { name: "slideLeft" } })
+}
+
 function goToRecipe(postId: string) {
   $navigateTo(Recipe, {
     props: { postId },
@@ -215,8 +220,8 @@ onMounted(() => {
           <StackLayout v-else-if="profile" class="profile-header" orientation="horizontal" verticalAlignment="center">
             <Image class="mx-4 mt-3 mb-2" width="90" borderRadius="45" :src="toFullUrl(profile.avatarUrl)" />
             <StackLayout class="mr-4" verticalAlignment="center">
-              <Label :text="profile.name" class="text-sm font-bold"/>
-              <Label :text="'Аккаунт создан: ' + formatDate(profile?.created_at)"  class="text-sm text-gray-500"/>
+              <Label :text="profile.name" class="text-sm font-bold" />
+              <Label :text="'Аккаунт создан: ' + formatDate(profile?.created_at)" class="text-sm text-gray-500" />
             </StackLayout>
           </StackLayout>
 
@@ -231,9 +236,9 @@ onMounted(() => {
             <StackLayout orientation="horizontal" verticalAlignment="center">
               <Image class="mx-4 mt-3 mb-2 rounded-full" width="65" :src="toFullUrl(post.author.avatar_url)" />
               <StackLayout class="mr-4" verticalAlignment="center">
-                <Label :text="post.author.name" class="text-sm font-bold"/>
+                <Label :text="post.author.name" class="text-sm font-bold" />
               </StackLayout>
-              <Label :text="formatDatePost(post.created_at)" class="text-sm text-gray-500 ml-3"/>
+              <Label :text="formatDatePost(post.created_at)" class="text-sm text-gray-500 ml-3" />
             </StackLayout>
 
             <!-- Текст поста -->
@@ -244,33 +249,20 @@ onMounted(() => {
 
             <!-- Кнопки лайков и комментариев -->
             <StackLayout orientation="horizontal" verticalAlignment="center">
-              <StackLayout class="bg-gray-200 rounded-4xl mx-4" orientation="horizontal" height="50" verticalAlignment="center" width="auto">
-                <Image 
-                  src="~/assets/arrow_up.png" 
-                  class="ml-3" 
-                  width="30" 
-                  height="30" 
-                  @tap="() => voteUp(post.id)"
-                  :opacity="userVote[post.id] === 'up' ? 0.7 : 1"
-                />
-                <Label
-                  :text="formatVotes(postVotes[post.id] || 0)"
-                  :class="['text-center mx-2', voteColor(postVotes[post.id] || 0)]"
-                  width="30"
-                />
-                <Image 
-                  src="~/assets/arrow_down.png" 
-                  class="mr-3" 
-                  width="30" 
-                  height="30" 
-                  @tap="() => voteDown(post.id)"
-                  :opacity="userVote[post.id] === 'down' ? 0.7 : 1"
-                />
+              <StackLayout class="bg-gray-200 rounded-4xl mx-4" orientation="horizontal" height="50"
+                verticalAlignment="center" width="auto">
+                <Image src="~/assets/arrow_up.png" class="ml-3" width="30" height="30" @tap="() => voteUp(post.id)"
+                  :opacity="userVote[post.id] === 'up' ? 0.7 : 1" />
+                <Label :text="formatVotes(postVotes[post.id] || 0)"
+                  :class="['text-center mx-2', voteColor(postVotes[post.id] || 0)]" width="30" />
+                <Image src="~/assets/arrow_down.png" class="mr-3" width="30" height="30" @tap="() => voteDown(post.id)"
+                  :opacity="userVote[post.id] === 'down' ? 0.7 : 1" />
               </StackLayout>
 
-              <StackLayout class="bg-gray-200 rounded-4xl" orientation="horizontal" height="50" verticalAlignment="center" width="auto" @tap="() => goToRecipe(post.id)">
-                <Image src="~/assets/commentary.png" class="ml-3" width="30" height="30"/>
-                <Label text="0" class="search-input ml-2 mr-3"/>
+              <StackLayout class="bg-gray-200 rounded-4xl" orientation="horizontal" height="50"
+                verticalAlignment="center" width="auto" @tap="() => goToRecipe(post.id)">
+                <Image src="~/assets/commentary.png" class="ml-3" width="30" height="30" />
+                <Label text="0" class="search-input ml-2 mr-3" />
               </StackLayout>
             </StackLayout>
           </StackLayout>
@@ -278,28 +270,14 @@ onMounted(() => {
       </ScrollView>
 
       <!-- Нижняя навигация -->
-      <StackLayout
-        orientation="horizontal" 
-        height="60"
-        width="250"
-        :top="navTop"
-        :left="navLeft"
-        class="bg-gray rounded-full mb-4"
-        verticalAlignment="center"
-        horizontalAlignment="center"
-        @loaded="onNavLoaded"
-      >
-        <Image src="~/assets/home-inactive.png" width="30" height="30" @tap="goToMain"/>
-        <StackLayout 
-          width="60" 
-          height="60" 
-          class="plus-button bg-orange rounded-full mx-7"
-          verticalAlignment="center"
-          horizontalAlignment="center"
-        >
-          <Image src="~/assets/plus.png" width="30" height="30"/>
+      <StackLayout orientation="horizontal" height="60" width="250" :top="navTop" :left="navLeft"
+        class="bg-gray rounded-full mb-4" verticalAlignment="center" horizontalAlignment="center" @loaded="onNavLoaded">
+        <Image src="~/assets/home-inactive.png" width="30" height="30" @tap="goToMain" />
+        <StackLayout width="60" height="60" class="plus-button bg-orange rounded-full mx-7" verticalAlignment="center"
+          horizontalAlignment="center">
+          <Image src="~/assets/plus.png" width="30" height="30" @tap="goToCreation" />
         </StackLayout>
-        <Image src="~/assets/profile-active.png" width="30" height="30"/>
+        <Image src="~/assets/profile-active.png" width="30" height="30" />
       </StackLayout>
     </AbsoluteLayout>
   </Page>

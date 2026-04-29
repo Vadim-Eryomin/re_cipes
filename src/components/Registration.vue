@@ -5,140 +5,90 @@
         <FlexboxLayout class="flex-col justify-center items-stretch h-full">
           <GridLayout rows="auto" columns="*" class="bg-[#FFFFFF] rounded-2xl mx-4 py-11">
             <StackLayout class="px-4">
-              <Image 
-                src="~/assets/logoMini.png" 
-                width="70" 
-                height="70"
-                class="self-center pt-5 mb-5"
-              />
-              
-              <Label text="Добро пожаловать!" 
-                class="text-[#F25C05] font-inter font-bold text-2xl text-center mb-2" />
-              
+              <Image src="~/assets/logoMini.png" width="70" height="70" class="self-center pt-5 mb-5" />
+
+              <Label text="Добро пожаловать!" class="text-[#F25C05] font-inter font-bold text-2xl text-center mb-2" />
+
               <StackLayout class="self-center w-full mb-5">
                 <Label class="text-[#969696] font-inter font-semibold text-base text-center"
-                  text="Заполните данные о себе для создания аккаунта в reCipes"
-                  textWrap="true" />
+                  text="Заполните данные о себе для создания аккаунта в reCipes" textWrap="true" />
               </StackLayout>
-              
-              <Label v-if="errorMessage" 
-                :text="errorMessage" 
-                class="text-red-500 text-center mb-2 text-sm"
+
+              <Label v-if="errorMessage" :text="errorMessage" class="text-red-500 text-center mb-2 text-sm"
                 textWrap="true" />
-              
+
               <StackLayout>
-                <GridLayout rows="auto" columns="19, *, auto" 
-                  class="bg-[#E9E9ED] rounded-2xl px-4 py-5 mb-4"
-                  :class="[
-                    'border-5',
-                    focusedField === 'fullname' ? 'border-[#F25C05]' : 'border-[#E9E9ED]'
-                  ]">
-                  
-                  <Image col="0" src="~/assets/profile.png" 
-                    width="14" height="18" />
-                  
-                  <TextField col="1" 
-                    v-model="form.fullname"
-                    hint="Имя пользователя"
+                <GridLayout rows="auto" columns="19, *, auto" class="bg-[#E9E9ED] rounded-2xl px-4 py-5 mb-4" :class="[
+                  'border-5',
+                  focusedField === 'fullname' ? 'border-[#F25C05]' : 'border-[#E9E9ED]'
+                ]">
+
+                  <Image col="0" src="~/assets/profile.png" width="14" height="18" />
+
+                  <TextField col="1" v-model="form.fullname" hint="Имя пользователя"
                     class="placeholder-[#969696] bg-transparent text-sm font-inter font-semibold ml-4"
-                    :class="form.fullname ? 'text-[#1E1D2E]' : 'text-[#969696]'"
-                    @focus="focusedField = 'fullname'"
-                    @blur="focusedField = null"
-                    autocorrect="false"
-                    autocapitalizationType="words" />
+                    :class="form.fullname ? 'text-[#1E1D2E]' : 'text-[#969696]'" @focus="focusedField = 'fullname'"
+                    @blur="focusedField = null" autocorrect="false" autocapitalizationType="words" />
                 </GridLayout>
-                
-                <GridLayout rows="auto" columns="19, *, auto" 
-                  class="bg-[#E9E9ED] rounded-2xl px-4 py-5 mb-4"
-                  :class="[
-                    'border-5',
-                    focusedField === 'email' ? 'border-[#F25C05]' : 'border-[#E9E9ED]'
-                  ]">
-                  
-                  <Image col="0" src="~/assets/email.png" 
-                    width="19" height="18" />
-                  
-                  <TextField col="1" 
-                    v-model="form.email"
-                    hint="E-mail"
+
+                <GridLayout rows="auto" columns="19, *, auto" class="bg-[#E9E9ED] rounded-2xl px-4 py-5 mb-4" :class="[
+                  'border-5',
+                  focusedField === 'email' ? 'border-[#F25C05]' : 'border-[#E9E9ED]'
+                ]">
+
+                  <Image col="0" src="~/assets/email.png" width="19" height="18" />
+
+                  <TextField col="1" v-model="form.email" hint="E-mail"
                     class="placeholder-[#969696] bg-transparent text-sm font-inter font-semibold ml-4"
-                    :class="form.email ? 'text-[#1E1D2E]' : 'text-[#969696]'"
-                    @focus="focusedField = 'email'"
-                    @blur="focusedField = null"
-                    autocorrect="false"
-                    autocapitalizationType="none"
+                    :class="form.email ? 'text-[#1E1D2E]' : 'text-[#969696]'" @focus="focusedField = 'email'"
+                    @blur="focusedField = null" autocorrect="false" autocapitalizationType="none"
                     keyboardType="email" />
                 </GridLayout>
-                
-                <GridLayout rows="auto" columns="16, *, 20" 
-                  class="bg-[#E9E9ED] rounded-2xl px-4 py-5 mb-4"
-                  :class="[
-                    'border-5',
-                    focusedField === 'password' ? 'border-[#F25C05]' : 'border-[#E9E9ED]'
-                  ]">
-                  
-                  <Image col="0" src="~/assets/key.png" 
-                    width="16" height="18" />
-                  
-                  <TextField col="1" 
-                    v-model="form.password"
-                    :secure="!showPassword"
-                    hint="Пароль"
+
+                <GridLayout rows="auto" columns="16, *, 20" class="bg-[#E9E9ED] rounded-2xl px-4 py-5 mb-4" :class="[
+                  'border-5',
+                  focusedField === 'password' ? 'border-[#F25C05]' : 'border-[#E9E9ED]'
+                ]">
+
+                  <Image col="0" src="~/assets/key.png" width="16" height="18" />
+
+                  <TextField col="1" v-model="form.password" :secure="!showPassword" hint="Пароль"
                     class="placeholder-[#969696] bg-transparent text-sm font-inter font-semibold ml-4"
-                    :class="form.password ? 'text-[#1E1D2E]' : 'text-[#969696]'"
-                    @focus="focusedField = 'password'"
-                    @blur="focusedField = null"
-                    autocorrect="false"
-                    autocapitalizationType="none" />
-                  
-                  <Image col="2" 
-                    :src="showPassword ? '~/assets/openeyes.png' : '~/assets/closeeyes.png'"
-                    :width="showPassword ? 24 : 18" 
-                    :height="showPassword ? 16 : 12" 
+                    :class="form.password ? 'text-[#1E1D2E]' : 'text-[#969696]'" @focus="focusedField = 'password'"
+                    @blur="focusedField = null" autocorrect="false" autocapitalizationType="none" />
+
+                  <Image col="2" :src="showPassword ? '~/assets/openeyes.png' : '~/assets/closeeyes.png'"
+                    :width="showPassword ? 24 : 18" :height="showPassword ? 16 : 12"
                     @tap="togglePasswordVisibility('password')" />
                 </GridLayout>
-                
-                <GridLayout rows="auto" columns="16, *, 20" 
-                  class="bg-[#E9E9ED] rounded-2xl px-4 py-5 mb-4"
-                  :class="[
-                    'border-5',
-                    focusedField === 'confirmPassword' ? 'border-[#F25C05]' : 'border-[#E9E9ED]'
-                  ]">
-                  
-                  <Image col="0" src="~/assets/key.png" 
-                    width="16" height="18" />
-                  
-                  <TextField col="1" 
-                    v-model="form.confirmPassword"
-                    :secure="!showConfirmPassword"
+
+                <GridLayout rows="auto" columns="16, *, 20" class="bg-[#E9E9ED] rounded-2xl px-4 py-5 mb-4" :class="[
+                  'border-5',
+                  focusedField === 'confirmPassword' ? 'border-[#F25C05]' : 'border-[#E9E9ED]'
+                ]">
+
+                  <Image col="0" src="~/assets/key.png" width="16" height="18" />
+
+                  <TextField col="1" v-model="form.confirmPassword" :secure="!showConfirmPassword"
                     hint="Подтверждение пароля"
                     class="placeholder-[#969696] bg-transparent text-sm font-inter font-semibold ml-4"
                     :class="form.confirmPassword ? 'text-[#1E1D2E]' : 'text-[#969696]'"
-                    @focus="focusedField = 'confirmPassword'"
-                    @blur="focusedField = null"
-                    autocorrect="false"
+                    @focus="focusedField = 'confirmPassword'" @blur="focusedField = null" autocorrect="false"
                     autocapitalizationType="none" />
-                  
-                  <Image col="2" 
-                    :src="showConfirmPassword ? '~/assets/openeyes.png' : '~/assets/closeeyes.png'"
-                    :width="showConfirmPassword ? 24 : 18" 
-                    :height="showConfirmPassword ? 16 : 12" 
+
+                  <Image col="2" :src="showConfirmPassword ? '~/assets/openeyes.png' : '~/assets/closeeyes.png'"
+                    :width="showConfirmPassword ? 24 : 18" :height="showConfirmPassword ? 16 : 12"
                     @tap="togglePasswordVisibility('confirmPassword')" />
                 </GridLayout>
-                
+
                 <Button :text="isLoading ? 'Регистрация...' : 'Зарегистрироваться'"
                   class="rounded-2xl font-inter font-bold text-lg text-white px-4 py-4 mt-4"
                   :class="isFormValid && !isLoading ? 'bg-[#F25C05]' : 'bg-[#969696]'"
-                  :isEnabled="isFormValid && !isLoading"
-                  textTransform="none"
-                  @tap="onRegister"/>
-                
+                  :isEnabled="isFormValid && !isLoading" textTransform="none" @tap="onRegister" />
+
                 <FlexboxLayout class="flex-row justify-center items-center mt-6">
-                  <Label text="Уже есть аккаунт?" 
-                    class="text-[#969696] font-inter font-semibold text-sm" />
-                  <Label text="Войти" 
-                    class="text-[#F25C05] font-inter font-semibold text-sm ml-8"
-                    @tap="goToLogin" />
+                  <Label text="Уже есть аккаунт?" class="text-[#969696] font-inter font-semibold text-sm" />
+                  <Label text="Войти" class="text-[#F25C05] font-inter font-semibold text-sm ml-8" @tap="goToLogin" />
                 </FlexboxLayout>
               </StackLayout>
             </StackLayout>
@@ -152,7 +102,7 @@
 <script lang="ts">
 import { defineComponent } from 'nativescript-vue';
 import Login from './Login.vue';
-import Main from './Main.vue';
+import Main from './MainPage.vue';
 import api from '../../services/api';
 
 interface FormData {
@@ -180,11 +130,11 @@ export default defineComponent({
   },
   computed: {
     isFormValid(): boolean {
-      return this.form.fullname.trim() !== '' && 
-             this.form.email.trim() !== '' && 
-             this.form.password.trim() !== '' && 
-             this.form.confirmPassword.trim() !== '' &&
-             this.form.password === this.form.confirmPassword;
+      return this.form.fullname.trim() !== '' &&
+        this.form.email.trim() !== '' &&
+        this.form.password.trim() !== '' &&
+        this.form.confirmPassword.trim() !== '' &&
+        this.form.password === this.form.confirmPassword;
     }
   },
   methods: {
@@ -195,46 +145,46 @@ export default defineComponent({
         this.showConfirmPassword = !this.showConfirmPassword;
       }
     },
-    
+
     async onRegister(): Promise<void> {
       if (this.form.password !== this.form.confirmPassword) {
         this.errorMessage = 'Пароли не совпадают';
         return;
       }
-      
+
       if (!this.isFormValid || this.isLoading) return;
-      
+
       this.isLoading = true;
       this.errorMessage = '';
-      
+
       try {
         console.log('Sending registration request...');
-        
+
         // Регистрация
         await api.post('/users/signup', {
           login: this.form.email,
           password: this.form.password,
           name: this.form.fullname
         });
-        
+
         console.log('Registration successful');
-        
+
         const loginResponse = await api.post('/users/login', {
           login: this.form.email,
           password: this.form.password
         });
-        
+
         const token = loginResponse.access_token;
         api.setToken(token);
-        
+
         this.$navigateTo(Main, {
           transition: { name: 'slideLeft', duration: 300 },
           clearHistory: true
         });
-        
+
       } catch (error: any) {
         console.error('Registration error:', error);
-        
+
         if (error.response) {
           if (error.response.status === 409) {
             this.errorMessage = 'Пользователь с таким email уже существует';
@@ -248,7 +198,7 @@ export default defineComponent({
         this.isLoading = false;
       }
     },
-    
+
     goToLogin(): void {
       this.$navigateTo(Login, {
         transition: { name: 'fade', duration: 300 }

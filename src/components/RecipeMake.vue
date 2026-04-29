@@ -20,7 +20,7 @@ export default defineComponent({
         uploadRecipe() {
             let s = session('upload-recipe');
             const task = s.multipartUpload([{ name: 'steps', value: JSON.stringify(this.steps) }, { name: 'ingredients', value: JSON.stringify(this.ingredients) }], {
-                url: "http://10.0.2.2:5000/media/upload",
+                url: "http://10.0.2.2:5000/posts",
                 method: "POST",
                 headers: {
                     "Content-Type": "application/octet-stream"

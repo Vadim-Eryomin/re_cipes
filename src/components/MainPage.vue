@@ -10,6 +10,7 @@ import { useMachine } from '@xstate/vue'
 import { postsService } from '~/init/services'
 import { ajaxService } from '~/init/ajax'
 import type { Post } from '~/features/domain/posts/models/post'
+import RecipeMake from './RecipeMake.vue';
 
 const sortOptions = ["Лучшие", "Новые", "Блины", "Борщ", "Салаты", "Горячее"]
 const selectedSort = ref("Новые")
@@ -138,6 +139,10 @@ function goToProfile() {
   $navigateTo(Profile, { transition: { name: "slideLeft" } })
 }
 
+function goToCreation() {
+  $navigateTo(RecipeMake, { transition: { name: "slideLeft" } })
+}
+
 function goToRecipe(postId: string) {
   $navigateTo(Recipe, {
     props: { postId },
@@ -187,16 +192,17 @@ onMounted(() => {
           <StackLayout orientation="horizontal" verticalAlignment="center" class="mt-2">
             <Image class="m-4" width="50" src="~/assets/logo.png" />
             <GridLayout class="bg-gray-200 rounded-4xl mr-4" columns="auto,*" height="50" verticalAlignment="center">
-              <Image col="0" src="~/assets/search-icon.png" class="m-4" width="20" height="20"/>
-              <TextField col="1" hint="Поиск в reCipes" class="search-input" editable="true"/>
+              <Image col="0" src="~/assets/search-icon.png" class="m-4" width="20" height="20" />
+              <TextField col="1" hint="Поиск в reCipes" class="search-input" editable="true" />
             </GridLayout>
           </StackLayout>
 
           <!-- Сортировка -->
           <StackLayout class="sort-container w-full">
-            <StackLayout ref="sortButton" class="dropdown-container p-3 pl-4" orientation="horizontal" @tap="toggleDropdown">
-              <Label :text="selectedSort" class="font-bold"/>
-              <Label text=" ▼" class="ml-1"/>
+            <StackLayout ref="sortButton" class="dropdown-container p-3 pl-4" orientation="horizontal"
+              @tap="toggleDropdown">
+              <Label :text="selectedSort" class="font-bold" />
+              <Label text=" ▼" class="ml-1" />
             </StackLayout>
           </StackLayout>
 
@@ -210,30 +216,34 @@ onMounted(() => {
             <StackLayout orientation="horizontal" verticalAlignment="center" class="mx-4 mt-3">
               <Image class="mr-3 rounded-full" width="65" :src="toFullUrl(post.author.avatar_url)" />
               <StackLayout verticalAlignment="center">
-                <Label :text="'r/' + post.community" class="text-sm font-bold"/>
-                <Label :text="'@' + post.author.name" class="text-sm font-bold"/>
+                <Label :text="'r/' + post.community" class="text-sm font-bold" />
+                <Label :text="'@' + post.author.name" class="text-sm font-bold" />
               </StackLayout>
-              <Label :text="formatDate(post.created_at)" class="text-sm text-gray-500 ml-3"/>
+              <Label :text="formatDate(post.created_at)" class="text-sm text-gray-500 ml-3" />
             </StackLayout>
 
             <!-- Текст -->
             <Label :text="post.text" class="text-sm mx-4 mt-2" textWrap="true" />
 
             <!-- Изображение -->
-            <Image v-if="post.medias && post.medias.length" class="m-4 rounded-3xl" :src="toFullUrl(post.medias[0])" 
-            />
+            <Image v-if="post.medias && post.medias.length" class="m-4 rounded-3xl" :src="toFullUrl(post.medias[0])" />
 
             <!-- Кнопки действий -->
             <StackLayout orientation="horizontal" verticalAlignment="center" class="mx-4 mt-2">
-              <StackLayout class="bg-gray-200 rounded-4xl" orientation="horizontal" height="50" verticalAlignment="center">
-                <Image src="~/assets/arrow_up.png" class="ml-3" width="30" height="30" @tap="() => voteUp(post.id)" :opacity="userVote[post.id] === 'up' ? 0.7 : 1"/>
-                <Label :text="formatVotes(postVotes[post.id] || 0)" :class="['mx-2 text-center', voteColor(postVotes[post.id] || 0)]" width="32"/>
-                <Image src="~/assets/arrow_down.png" class="mr-3" width="30" height="30" @tap="() => voteDown(post.id)" :opacity="userVote[post.id] === 'down' ? 0.7 : 1"/>
+              <StackLayout class="bg-gray-200 rounded-4xl" orientation="horizontal" height="50"
+                verticalAlignment="center">
+                <Image src="~/assets/arrow_up.png" class="ml-3" width="30" height="30" @tap="() => voteUp(post.id)"
+                  :opacity="userVote[post.id] === 'up' ? 0.7 : 1" />
+                <Label :text="formatVotes(postVotes[post.id] || 0)"
+                  :class="['mx-2 text-center', voteColor(postVotes[post.id] || 0)]" width="32" />
+                <Image src="~/assets/arrow_down.png" class="mr-3" width="30" height="30" @tap="() => voteDown(post.id)"
+                  :opacity="userVote[post.id] === 'down' ? 0.7 : 1" />
               </StackLayout>
 
-              <StackLayout class="bg-gray-200 rounded-4xl ml-3" orientation="horizontal" height="50" verticalAlignment="center" @tap="() => goToRecipe(post.id)">
-                <Image src="~/assets/commentary.png" class="ml-3" width="30" height="30"/>
-                <Label :text="'0'" class="search-input ml-2 mr-3"/>
+              <StackLayout class="bg-gray-200 rounded-4xl ml-3" orientation="horizontal" height="50"
+                verticalAlignment="center" @tap="() => goToRecipe(post.id)">
+                <Image src="~/assets/commentary.png" class="ml-3" width="30" height="30" />
+                <Label :text="'0'" class="search-input ml-2 mr-3" />
               </StackLayout>
             </StackLayout>
           </StackLayout>
@@ -242,35 +252,24 @@ onMounted(() => {
       </ScrollView>
 
       <!-- Оверлей для закрытия дропдауна -->
-      <GridLayout v-if="dropdownOpen" width="100%" height="100%" @tap="closeDropdown"/>
+      <GridLayout v-if="dropdownOpen" width="100%" height="100%" @tap="closeDropdown" />
 
       <!-- Дропдаун сортировки -->
       <StackLayout v-if="dropdownOpen" class="dropdown-menu" :left="dropdownLeft" :top="dropdownTop">
-        <Label text="Сортировка по:" class="dropdown-title"/>
-        <Label v-for="option in sortOptions" :key="option"
-               :text="option"
-               class="p-3 px-4"
-               :class="{ selected: option === selectedSort }"
-               @tap="selectSort(option)"/>
+        <Label text="Сортировка по:" class="dropdown-title" />
+        <Label v-for="option in sortOptions" :key="option" :text="option" class="p-3 px-4"
+          :class="{ selected: option === selectedSort }" @tap="selectSort(option)" />
       </StackLayout>
 
       <!-- Нижняя навигация -->
-      <StackLayout
-        orientation="horizontal"
-        height="60"
-        width="250"
-        :top="navTop"
-        :left="navLeft"
-        class="bg-gray rounded-full mb-4"
-        verticalAlignment="center"
-        horizontalAlignment="center"
-        @loaded="onNavLoaded"
-      >
-        <Image src="~/assets/home-active.png" width="30" height="30"/>
-        <StackLayout width="60" height="60" class="plus-button bg-orange rounded-full mx-7" verticalAlignment="center" horizontalAlignment="center">
-          <Image src="~/assets/plus.png" width="30" height="30"/>
+      <StackLayout orientation="horizontal" height="60" width="250" :top="navTop" :left="navLeft"
+        class="bg-gray rounded-full mb-4" verticalAlignment="center" horizontalAlignment="center" @loaded="onNavLoaded">
+        <Image src="~/assets/home-active.png" width="30" height="30" />
+        <StackLayout width="60" height="60" class="plus-button bg-orange rounded-full mx-7" verticalAlignment="center"
+          horizontalAlignment="center">
+          <Image src="~/assets/plus.png" width="30" height="30" @tap="goToCreation" />
         </StackLayout>
-        <Image src="~/assets/profile-inactive.png" width="30" height="30" @tap="goToProfile"/>
+        <Image src="~/assets/profile-inactive.png" width="30" height="30" @tap="goToProfile" />
       </StackLayout>
     </AbsoluteLayout>
   </Page>
