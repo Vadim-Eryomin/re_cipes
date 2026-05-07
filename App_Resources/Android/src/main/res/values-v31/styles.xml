@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="LaunchScreenThemeBase" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="android:windowSplashScreenBackground">#F25C05</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_inset</item>
+        <!-- <item name="android:postSplashScreenTheme">@style/AppTheme</item> -->
+    </style>
+
+</resources>

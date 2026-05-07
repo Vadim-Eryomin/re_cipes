@@ -1,67 +1,55 @@
 <script lang="ts" setup>
-import { AbsoluteLayout, ActivityIndicator, GridLayout, Image, Label, ScrollView, StackLayout, TextField } from '@nativescript/core';
-import { ref, onMounted, computed, watch } from "nativescript-vue"
-import { Screen } from '@nativescript/core/platform';
+import { GridLayout, Image, Label, ScrollView, StackLayout, TextField, FlexboxLayout } from '@nativescript/core';
+import { ref, onMounted, computed } from "nativescript-vue"
 import { $navigateTo } from 'nativescript-vue'
-import Profile from './Profile.vue';
 import Recipe from './Recipe.vue';
-import { createLoadingMachine } from '~/reusable/loadingMachine'
-import { useMachine } from '@xstate/vue'
-import { postsService } from '~/init/services'
-import { ajaxService } from '~/init/ajax'
-import type { Post } from '~/features/domain/posts/models/post'
-import RecipeMake from './RecipeMake.vue';
+import BottomNav from './BottomNav.vue';
+import { samplePosts, type Post } from './data/posts';
 
-const sortOptions = ["Лучшие", "Новые", "Блины", "Борщ", "Салаты", "Горячее"]
-const selectedSort = ref("Новые")
-const dropdownOpen = ref(false)
+const posts = ref<Post[]>(samplePosts)
+const searchQuery = ref('')
+const showSearchResults = ref(false)
+const activeTab = ref('main')
 
-const sortButton = ref<any>()
-const dropdownTop = ref(0)
-const dropdownLeft = ref(0)
+function getTopicName(topic: string): string {
+  return topic.replace(/^r\//, '').toLowerCase()
+}
 
-const navTop = ref(0)
-const navLeft = ref(0)
+const uniqueTopics = computed(() => {
+  const topicsMap = new Map<string, number>()
+  posts.value.forEach(post => {
+    const count = topicsMap.get(post.topic) || 0
+    topicsMap.set(post.topic, count + 1)
+  })
+  return Array.from(topicsMap.entries()).map(([topic, count]) => ({ topic, count })).sort((a, b) => 
+    a.topic.localeCompare(b.topic)
+  )
+})
 
-const feedMachine = createLoadingMachine(
-  { limit: 20, offset: 0 },
-  (query) => postsService.getFeed(query.limit, query.offset)
-)
-const { snapshot: feedState, send: sendFeed } = useMachine(feedMachine)
+const filteredTopics = computed(() => {
+  if (!searchQuery.value) {
+    return uniqueTopics.value
+  }
+  const query = searchQuery.value.toLowerCase()
+  return uniqueTopics.value.filter(item => 
+    getTopicName(item.topic).startsWith(query)
+  )
+})
 
-const posts = computed(() => (feedState.value.context.data as Post[]) || [])
-const isLoading = computed(() => feedState.value.matches('loading'))
-
-const postVotes = ref<Record<string, number>>({})
-const userVote = ref<Record<string, 'up' | 'down' | null>>({})
+const filteredPosts = computed(() => {
+  if (!searchQuery.value) {
+    return posts.value
+  }
+  const query = searchQuery.value.toLowerCase()
+  return posts.value.filter(post => 
+    getTopicName(post.topic).startsWith(query)
+  )
+})
 
 function toFullUrl(path: string | null | undefined): string {
   if (!path) return ''
   if (path.startsWith('http://') || path.startsWith('https://')) return path
-  const baseUrl = (ajaxService as any)._baseURL
-  return baseUrl + (path.startsWith('/') ? path : '/' + path)
-}
-
-function formatDate(createdAt: string | Date | undefined): string {
-  if (!createdAt) return 'недавно'
-  const date = typeof createdAt === 'string' ? new Date(createdAt) : createdAt
-  if (isNaN(date.getTime())) return 'недавно'
-
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
-
-  if (diffDays === 0) {
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
-    if (diffHours === 0) {
-      const diffMinutes = Math.floor(diffMs / (1000 * 60))
-      return diffMinutes < 1 ? 'только что' : `${diffMinutes} мин назад`
-    }
-    return `${diffHours} ч назад`
-  }
-
-  if (diffDays === 1) return '1 дн. назад'
-  return `${diffDays} дн. назад`
+  return path
 }
 
 function formatVotes(value: number): string {
@@ -72,75 +60,42 @@ function formatVotes(value: number): string {
 
 function voteColor(value: number): string {
   if (value > 0) return 'green-text'
-  if (value < 0) return 'red-text'
+  if (value < 0) return 'orange-text'
   return ''
 }
 
-async function voteUp(postId: string) {
-  const current = userVote.value[postId]
-  const delta = current === 'up' ? -1 : (current === 'down' ? 2 : 1)
+function voteUp(postId: string) {
+  const post = posts.value.find(p => p.id === postId)
+  if (!post) return
 
-  if (current === 'up') userVote.value[postId] = null
-  else if (current === 'down') userVote.value[postId] = 'up'
-  else userVote.value[postId] = 'up'
-
-  postVotes.value[postId] = (postVotes.value[postId] || 0) + delta
-
-  try {
-    if (current === 'up') await postsService.unlikePost(postId)
-    else await postsService.likePost(postId)
-  } catch (e) {
-    userVote.value[postId] = current
-    postVotes.value[postId] = (postVotes.value[postId] || 0) - delta
-    console.error(e)
+  if (post.userLiked) {
+    post.likes--
+    post.userLiked = false
+  } else {
+    if (post.userDisliked) {
+      post.likes++
+      post.userDisliked = false
+    }
+    post.likes++
+    post.userLiked = true
   }
 }
 
-async function voteDown(postId: string) {
-  const current = userVote.value[postId]
-  const delta = current === 'down' ? 1 : (current === 'up' ? -2 : -1)
+function voteDown(postId: string) {
+  const post = posts.value.find(p => p.id === postId)
+  if (!post) return
 
-  if (current === 'down') userVote.value[postId] = null
-  else if (current === 'up') userVote.value[postId] = 'down'
-  else userVote.value[postId] = 'down'
-
-  postVotes.value[postId] = (postVotes.value[postId] || 0) + delta
-
-  try {
-    if (current === 'down') await postsService.likePost(postId)
-    else await postsService.unlikePost(postId)
-  } catch (e) {
-    userVote.value[postId] = current
-    postVotes.value[postId] = (postVotes.value[postId] || 0) - delta
-    console.error(e)
+  if (post.userDisliked) {
+    post.likes++
+    post.userDisliked = false
+  } else {
+    if (post.userLiked) {
+      post.likes--
+      post.userLiked = false
+    }
+    post.likes--
+    post.userDisliked = true
   }
-}
-
-function toggleDropdown() {
-  const btn = sortButton.value?.nativeView
-  if (btn) {
-    const location = btn.getLocationRelativeTo(btn.page)
-    dropdownTop.value = location.y
-    dropdownLeft.value = location.x
-  }
-  dropdownOpen.value = !dropdownOpen.value
-}
-
-function closeDropdown() {
-  dropdownOpen.value = false
-}
-
-function selectSort(option: string) {
-  selectedSort.value = option
-  dropdownOpen.value = false
-}
-
-function goToProfile() {
-  $navigateTo(Profile, { transition: { name: "slideLeft" } })
-}
-
-function goToCreation() {
-  $navigateTo(RecipeMake, { transition: { name: "slideLeft" } })
 }
 
 function goToRecipe(postId: string) {
@@ -150,128 +105,94 @@ function goToRecipe(postId: string) {
   })
 }
 
-function onNavLoaded(args: any) {
-  const view = args.object.nativeView
-  if (view?.getParent) {
-    const parent = view.getParent()
-    if (parent?.setClipChildren) {
-      parent.setClipChildren(false)
-    }
-  }
+function onSearchChange(args: any) {
+  searchQuery.value = args.value
+  showSearchResults.value = args.value.length > 0
 }
 
-watch(posts, (newPosts: Post[]) => {
-  newPosts.forEach((post: Post) => {
-    if (!(post.id in postVotes.value)) {
-      postVotes.value[post.id] = post.likes_count || 0
-      userVote.value[post.id] = null
-    }
-  })
-})
+function selectTopic(topic: string) {
+  const topicName = getTopicName(topic)
+  searchQuery.value = topicName
+  showSearchResults.value = false
+}
 
 onMounted(() => {
-  const screenWidth = Screen.mainScreen.widthDIPs
-  const screenHeight = Screen.mainScreen.heightDIPs
-  const navWidth = 250
-  const navHeight = 60
-
-  navTop.value = screenHeight - navHeight - 100
-  navLeft.value = (screenWidth - navWidth) / 2
-
-  sendFeed({ type: 'LOAD' })
 })
 </script>
 
 <template>
-  <Page actionBarHidden="true">
-    <AbsoluteLayout>
-      <ScrollView width="100%" height="100%">
-        <StackLayout>
-
-          <!-- Лого + Поиск -->
-          <StackLayout orientation="horizontal" verticalAlignment="center" class="mt-2">
-            <Image class="m-4" width="50" src="~/assets/logo.png" />
-            <GridLayout class="bg-gray-200 rounded-4xl mr-4" columns="auto,*" height="50" verticalAlignment="center">
-              <Image col="0" src="~/assets/search-icon.png" class="m-4" width="20" height="20" />
-              <TextField col="1" hint="Поиск в reCipes" class="search-input" editable="true" />
+  <Page actionBarHidden="true" backgroundSpanUnderStatusBar="true" class="bg-[#121212]">
+    <GridLayout rows="*, auto" columns="*" class="bg-[#121212]">
+      
+      <ScrollView row="0" col="0">
+        <FlexboxLayout flexDirection="column" alignItems="stretch" class="px-4 pt-8 pb-4">
+          
+          <StackLayout orientation="horizontal" verticalAlignment="center" class="mt-2 mb-2">
+            <Image class="" height="30" src="~/assets/name_mini.png" />
+            <GridLayout class="bg-[#393939] rounded-lg ml-2 mr-0" columns="auto,*" height="40" verticalAlignment="center">
+              <Image col="0" src="~/assets/Search_main.png" class="ml-2" width="25" height="25" />
+              <TextField col="1" hint="Поиск в reCipes" class="ml-1 search-input text-white text-[14px] custom-hint" editable="true" 
+                @textChange="onSearchChange" :text="searchQuery" />
             </GridLayout>
           </StackLayout>
 
-          <!-- Сортировка -->
-          <StackLayout class="sort-container w-full">
-            <StackLayout ref="sortButton" class="dropdown-container p-3 pl-4" orientation="horizontal"
-              @tap="toggleDropdown">
-              <Label :text="selectedSort" class="font-bold" />
-              <Label text=" ▼" class="ml-1" />
+          <StackLayout v-if="showSearchResults && filteredTopics.length > 0" class="bg-[#1E1E1E] rounded-xl mb-4">
+            <Label text="Топики" class="text-[#C7C7C7] text-[12px] px-4 pt-3 pb-1" />
+            <StackLayout v-for="item in filteredTopics" :key="item.topic" 
+              @tap="() => selectTopic(item.topic)" class="px-4 py-3 border-b border-[#393939]">
+              <FlexboxLayout flexDirection="row" justifyContent="space-between" alignItems="center" width="100%">
+                <Label :text="item.topic" class="text-white text-[14px] font-medium" />
+                <Label :text="item.count + ' ' + (item.count === 1 ? 'пост' : (item.count >= 2 && item.count <= 4 ? 'поста' : 'постов'))" 
+                  class="text-[#C7C7C7] text-[12px]" />
+              </FlexboxLayout>
             </StackLayout>
           </StackLayout>
 
-          <!-- Индикатор загрузки -->
-          <ActivityIndicator v-if="isLoading" busy="true" class="m-10" />
+          <StackLayout v-for="(post, index) in filteredPosts" :key="post.id">
+            <StackLayout class="mb-4">
+              <GridLayout columns="auto, *, auto" class="mx-4 mt-3 ml-0 mr-0" verticalAlignment="center">
+                <Image col="0" width="40" height="40" :src="toFullUrl(post.userAvatar)" class="rounded-full" />
+                
+                <StackLayout col="1" class="ml-2" verticalAlignment="center">
+                  <Label :text="post.topic" class="text-white font-bold text-[12px]" />
+                  <Label :text="post.userName" class="text-white text-[12px]" />
+                </StackLayout>
+                
+                <Label col="2" :text="post.date" class="text-[#C7C7C7] text-[12px] font-normal text-right " />
+              </GridLayout>
 
-          <!-- Список постов -->
-          <StackLayout v-else v-for="post in posts" :key="post.id" class="mb-8">
+              <Label :text="post.title" class="text-white text-[15px] mx-4 mt-2 ml-0 mr-0" textWrap="true" @tap="() => goToRecipe(post.id)" />
+              
+              <Image v-if="post.image" class="mx-2 mt-2 rounded-xl" :src="toFullUrl(post.image)" width="100%" @tap="() => goToRecipe(post.id)" />
 
-            <!-- Шапка поста -->
-            <StackLayout orientation="horizontal" verticalAlignment="center" class="mx-4 mt-3">
-              <Image class="mr-3 rounded-full" width="65" :src="toFullUrl(post.author.avatar_url)" />
-              <StackLayout verticalAlignment="center">
-                <Label :text="'r/' + post.community" class="text-sm font-bold" />
-                <Label :text="'@' + post.author.name" class="text-sm font-bold" />
-              </StackLayout>
-              <Label :text="formatDate(post.created_at)" class="text-sm text-gray-500 ml-3" />
-            </StackLayout>
+              <StackLayout orientation="horizontal" verticalAlignment="center" class="mx-4 mt-2 ml-0">
+                <StackLayout class="bg-[#121212] rounded-4xl border border-[#393939]" orientation="horizontal" height="30" verticalAlignment="center">
+                  <Image :src="post.userLiked ? '~/assets/arrow_up.png' : '~/assets/arrow_up (1).png'" class="ml-3" width="30" height="30" @tap="() => voteUp(post.id)" />
+                  <Label :text="formatVotes(post.likes)"
+                    :class="['mx-2 text-center', voteColor(post.likes)]" width="32" />
+                  <Image :src="post.userDisliked ? '~/assets/arrow_down.png' : '~/assets/arrow_down (1).png'" class="mr-3" width="30" height="30" @tap="() => voteDown(post.id)" />
+                </StackLayout>
 
-            <!-- Текст -->
-            <Label :text="post.text" class="text-sm mx-4 mt-2" textWrap="true" />
-
-            <!-- Изображение -->
-            <Image v-if="post.medias && post.medias.length" class="m-4 rounded-3xl" :src="toFullUrl(post.medias[0])" />
-
-            <!-- Кнопки действий -->
-            <StackLayout orientation="horizontal" verticalAlignment="center" class="mx-4 mt-2">
-              <StackLayout class="bg-gray-200 rounded-4xl" orientation="horizontal" height="50"
-                verticalAlignment="center">
-                <Image src="~/assets/arrow_up.png" class="ml-3" width="30" height="30" @tap="() => voteUp(post.id)"
-                  :opacity="userVote[post.id] === 'up' ? 0.7 : 1" />
-                <Label :text="formatVotes(postVotes[post.id] || 0)"
-                  :class="['mx-2 text-center', voteColor(postVotes[post.id] || 0)]" width="32" />
-                <Image src="~/assets/arrow_down.png" class="mr-3" width="30" height="30" @tap="() => voteDown(post.id)"
-                  :opacity="userVote[post.id] === 'down' ? 0.7 : 1" />
-              </StackLayout>
-
-              <StackLayout class="bg-gray-200 rounded-4xl ml-3" orientation="horizontal" height="50"
-                verticalAlignment="center" @tap="() => goToRecipe(post.id)">
-                <Image src="~/assets/commentary.png" class="ml-3" width="30" height="30" />
-                <Label :text="'0'" class="search-input ml-2 mr-3" />
+                <StackLayout class="bg-[#121212] rounded-4xl ml-3 border border-[#393939]" orientation="horizontal" height="30"
+                  verticalAlignment="center" @tap="() => goToRecipe(post.id)">
+                  <Image src="~/assets/Chat_alt.png" class="ml-3" width="20" height="20" color="white" />
+                  <Label :text="post.comments.toString()" class="search-input ml-2 mr-3 text-white" />
+                </StackLayout>
               </StackLayout>
             </StackLayout>
+
+            <StackLayout v-if="index < filteredPosts.length - 1" height="1" backgroundColor="#393939" />
           </StackLayout>
 
-        </StackLayout>
+          <Label v-if="filteredPosts.length === 0 && !showSearchResults && searchQuery" 
+            text="Нет постов в этом топике" 
+            class="text-[#C7C7C7] text-[14px] text-center mt-10" />
+        </FlexboxLayout>
       </ScrollView>
 
-      <!-- Оверлей для закрытия дропдауна -->
-      <GridLayout v-if="dropdownOpen" width="100%" height="100%" @tap="closeDropdown" />
+      <BottomNav row="1" col="0" :activeTab="activeTab" @update:activeTab="activeTab = $event" class="mb-2"/>
 
-      <!-- Дропдаун сортировки -->
-      <StackLayout v-if="dropdownOpen" class="dropdown-menu" :left="dropdownLeft" :top="dropdownTop">
-        <Label text="Сортировка по:" class="dropdown-title" />
-        <Label v-for="option in sortOptions" :key="option" :text="option" class="p-3 px-4"
-          :class="{ selected: option === selectedSort }" @tap="selectSort(option)" />
-      </StackLayout>
-
-      <!-- Нижняя навигация -->
-      <StackLayout orientation="horizontal" height="60" width="250" :top="navTop" :left="navLeft"
-        class="bg-gray rounded-full mb-4" verticalAlignment="center" horizontalAlignment="center" @loaded="onNavLoaded">
-        <Image src="~/assets/home-active.png" width="30" height="30" />
-        <StackLayout width="60" height="60" class="plus-button bg-orange rounded-full mx-7" verticalAlignment="center"
-          horizontalAlignment="center">
-          <Image src="~/assets/plus.png" width="30" height="30" @tap="goToCreation" />
-        </StackLayout>
-        <Image src="~/assets/profile-inactive.png" width="30" height="30" @tap="goToProfile" />
-      </StackLayout>
-    </AbsoluteLayout>
+    </GridLayout>
   </Page>
 </template>
 
@@ -284,63 +205,27 @@ onMounted(() => {
   background: transparent;
 }
 
-.sort-container {
-  border-top-width: 2;
-  border-bottom-width: 2;
-  border-color: #949090;
-}
-
-.dropdown-container {
-  font-weight: 600;
-  font-size: 16;
-  color: #636363
-}
-
-.dropdown-menu {
-  width: 180;
-  background-color: white;
-  border-radius: 12;
-  border-color: #949090;
-  padding: 8;
-}
-
-.dropdown-title {
-  font-size: 12;
-  color: #888;
-  margin-bottom: 6;
-}
-
-.selected {
-  background-color: #eeeeee;
+.custom-hint {
+  placeholder-color: #898989;
 }
 
 .green-text {
   color: #479A0F;
 }
 
-.red-text {
-  color: #FF4444;
+.orange-text {
+  color: #F25C05;
 }
 
 .text-center {
   text-align: center;
 }
 
-.plus-button {
-  margin-top: -50;
-  justify-content: center;
-  align-items: center;
-}
-
 .bg-gray {
   background-color: #E9E9ED;
 }
 
-.bg-orange {
-  background-color: #FF6600;
-}
-
-.rounded-full {
-  border-radius: 30;
+.border-b {
+  border-bottom-width: 1;
 }
 </style>
