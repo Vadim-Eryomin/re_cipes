@@ -104,6 +104,9 @@ import { defineComponent } from 'nativescript-vue';
 import Login from './Login.vue';
 import Main from './MainPage.vue';
 import api from '../../services/api';
+import { usersService } from '~/init/services';
+import { firebase } from '@nativescript/firebase-core';
+import { forceRegisterCurrentToken } from '~/fcm';
 
 interface FormData {
   fullname: string;
@@ -174,8 +177,18 @@ export default defineComponent({
           password: this.form.password
         });
 
+        await forceRegisterCurrentToken();
+
         const token = loginResponse.access_token;
         api.setToken(token);
+        
+        const { secureStorage } = require('~/init/storage');
+        secureStorage.setSync({ key: 'accessToken', value: token });
+
+        const fcmToken = await (firebase() as any).messaging().getToken();
+        if (fcmToken) {
+          await usersService.registerFcmToken(fcmToken);
+        }
 
         this.$navigateTo(Main, {
           transition: { name: 'slideLeft', duration: 300 },

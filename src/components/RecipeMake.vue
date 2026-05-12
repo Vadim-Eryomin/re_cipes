@@ -1,179 +1,179 @@
 <script lang="ts">
 import { session } from '@nativescript/background-http';
 import { isAvailable, requestPermissions, takePicture } from '@nativescript/camera';
-import { Button, GridLayout, Image, ImageAsset, ImageSource, knownFolders, Label, path, ScrollView, StackLayout, TextField, TextView } from '@nativescript/core';
-import { ImagePicker } from '@nativescript/imagepicker';
-import * as imagePickerPlugin from '@nativescript/imagepicker'
+import { ImageSource, knownFolders, path, ImageAsset } from '@nativescript/core';
+import * as imagePickerPlugin from '@nativescript/imagepicker';
 import { defineComponent } from 'nativescript-vue';
+import { API_BASE_URL } from '~/config';
+import { AjaxService } from '~/features/core/ajaxService';
 
-type Ingredient = { name: string, amount: number, unit: string }
-type Step = { photoAsset: ImageAsset | null, text: string, imagePath: string }
+type Ingredient = { name: string; amount: number; unit: string };
+type Step = { photoAsset: ImageAsset | null; text: string; imagePath: string };
+
+const ajax = new AjaxService(API_BASE_URL);
 
 export default defineComponent({
-    data() {
-        return {
-            steps: [{}, {}] as Step[],
-            ingredients: [{}] as Ingredient[],
-        }
+  data() {
+    return {
+      steps: [{ photoAsset: null, text: '', imagePath: '' }] as Step[],
+      ingredients: [{ name: '', amount: 0, unit: '' }] as Ingredient[],
+    };
+  },
+  methods: {
+    async uploadRecipe() {
+      const firstBlock = this.steps[0];
+      const actualSteps = this.steps.slice(1);
+
+      const payload = {
+        text: firstBlock?.text || '', 
+        
+        medias: firstBlock?.imagePath ? [firstBlock.imagePath] : [],
+
+        recipe: actualSteps.map((s) => ({
+          step: s.text,
+          media: s.imagePath || '',
+        })),
+
+        ingredients: this.ingredients
+          .filter(i => i.name.trim() !== '')
+          .map((i) => ({
+            name: i.name,
+            count: Number(i.amount),
+            measure_name: i.unit,
+          })),
+        
+        community: 'general'
+      };
+
+      try {
+        const result = await ajax.post({ url: '/posts', data: payload });
+        console.log('Успех', result);
+      } catch (e) {
+        console.error('Ошибка при публикации', e);
+      }
     },
-    methods: {
-        uploadRecipe() {
-            let s = session('upload-recipe');
-            const task = s.multipartUpload([{ name: 'steps', value: JSON.stringify(this.steps) }, { name: 'ingredients', value: JSON.stringify(this.ingredients) }], {
-                url: "http://10.0.2.2:5000/posts",
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/octet-stream"
-                },
-                description: "Uploading image from gallery"
-            });
-        },
-        newIngredient() {
-            this.ingredients.push({ name: '', amount: 0, unit: '' })
 
-        },
-        async onTakePicture(index: number) {
-            try {
-                const perms = await requestPermissions();
+    newIngredient() {
+      this.ingredients.push({ name: '', amount: 0, unit: '' });
+    },
 
-                if (perms && isAvailable()) {
-                    const asset = await takePicture({
-                        width: 1280,
-                        height: 720,
-                        keepAspectRatio: true,
-                        saveToGallery: false,
-                        cameraFacing: 'rear'
-                    });
-
-                    this.steps[index].photoAsset = asset;
-
-                    let source = await ImageSource.fromAsset(asset);
-                    let temp = knownFolders.temp();
-                    let filepath = path.join(temp.path, `photo_${Date.now()}.jpg`);
-                    await source.saveToFileAsync(filepath, 'jpg');
-
-                    let s = session('upload-image');
-                    const task = s.multipartUpload([{ name: 'file', filename: filepath, mimeType: 'image/jpeg' }], {
-                        url: "http://10.0.2.2:5000/media/upload",
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/octet-stream"
-                        },
-                        description: "Uploading image from gallery"
-                    });
-
-                    // @ts-ignore
-                    task.on('responded', e => this.steps[index].imagePath = e.data.url)
-
-                } else {
-                    console.log('Camera not available or permissions denied');
-                }
-            } catch (e: any) {
-                console.error('Camera error:', e.message || e);
-            }
-        },
-
-        async onChoosePicture(index: number) {
-            let imagePickerObj: ImagePicker = imagePickerPlugin.create({
-                mode: 'single',
-                android: { use_photo_picker: true },
-            })
-
-            let authResult = await imagePickerObj.authorize()
-            if (authResult.authorized) {
-                let selection = await imagePickerObj.present()
-                if (!!selection.at(0)) {
-                    let selectedAsset = selection.at(0)!.asset
-                    let source = await ImageSource.fromAsset(selectedAsset);
-                    this.steps[index].photoAsset = selectedAsset;
-
-                    let temp = knownFolders.temp();
-                    let filepath = path.join(temp.path, `chosen_photo_${Date.now()}.jpg`);
-                    await source.saveToFileAsync(filepath, 'jpg');
-                    console.log('Изображение сохранено по пути:', filepath);
-
-                    let s = session('upload-image');
-                    const task = s.multipartUpload([{ name: 'file', filename: filepath, mimeType: 'image/jpeg' }], {
-                        url: "http://10.0.2.2:5000/media/upload",
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/octet-stream"
-                        },
-                        description: "Uploading image from gallery"
-                    });
-
-                    task.on('responded', e => console.log(e.data))
-                }
-            } else {
-                console.log('Разрешите доступ, иначе ничего не получится')
-            }
+    async handleImageUpload(filepath: string, index: number) {
+      let s = session('upload-image');
+      const task = s.multipartUpload(
+        [{ name: 'file', filename: filepath, mimeType: 'image/jpeg' }],
+        {
+          url: API_BASE_URL + '/media/upload',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream' },
+          description: 'Uploading image',
         }
+      );
+
+      task.on('responded', (e) => {
+        const responseData = JSON.parse(e.data);
+        this.steps[index].imagePath = responseData.url;
+        console.log(`Фото для блока ${index} загружено:`, responseData.url);
+      });
+      
+      task.on('error', (e) => console.error('Ошибка загрузки файла', e));
+    },
+
+    async onTakePicture(index: number) {
+      try {
+        const perms = await requestPermissions();
+        if (perms && isAvailable()) {
+          const asset = await takePicture({
+            width: 1280,
+            height: 720,
+            keepAspectRatio: true,
+            saveToGallery: false,
+          });
+
+          this.steps[index].photoAsset = asset;
+          let source = await ImageSource.fromAsset(asset);
+          let filepath = path.join(knownFolders.temp().path, `photo_${Date.now()}.jpg`);
+          await source.saveToFileAsync(filepath, 'jpg');
+
+          await this.handleImageUpload(filepath, index);
+        }
+      } catch (e: any) {
+        console.error('Camera error:', e.message || e);
+      }
+    },
+
+    async onChoosePicture(index: number) {
+      let imagePickerObj = imagePickerPlugin.create({
+        mode: 'single',
+        android: { use_photo_picker: true },
+      });
+
+      let authResult = await imagePickerObj.authorize();
+      if (authResult.authorized) {
+        let selection = await imagePickerObj.present();
+        if (selection.length > 0) {
+          let selectedAsset = selection[0].asset;
+          this.steps[index].photoAsset = selectedAsset;
+
+          let source = await ImageSource.fromAsset(selectedAsset);
+          let filepath = path.join(knownFolders.temp().path, `chosen_${Date.now()}.jpg`);
+          await source.saveToFileAsync(filepath, 'jpg');
+
+          await this.handleImageUpload(filepath, index);
+        }
+      }
+    },
+    
+    addStep() {
+        this.steps.push({ photoAsset: null, text: '', imagePath: '' });
     }
+  },
 });
 </script>
 
 <template>
-    <Page>
-        <ScrollView>
-            <StackLayout>
-                <StackLayout orientation="horizontal">
-                    <Image src="~/assets/cross.png" class="w-16" />
-                    <Label col="1" text="Новый рецепт" class="text-lg font-bold text-center text-[#F25C05]" />
-                </StackLayout>
-                <StackLayout>
-                    <Image v-if="steps[0].photoAsset" :src="steps[0].photoAsset" class="w-[20rem] h-[10rem] rounded-lg">
-                    </Image>
+  <Page>
+    <ScrollView>
+      <StackLayout class="p-4">
+        <StackLayout orientation="horizontal" class="mb-4">
+          <Image src="~/assets/cross.png" class="w-8 h-8" />
+          <Label text="Новый рецепт" class="text-xl font-bold text-[#F25C05] ml-4" />
+        </StackLayout>
 
-                    <StackLayout v-else="" class="bg-[#E9E9ED] p-3 rounded-lg h-[13rem] mx-4"
-                        style="border-width: 3px; border-color: black; border-style: solid;" orientation="vertical">
-                        <Image src="~/assets/gallery.png" class="w-[3rem]"></Image>
-                        <Button class="bg-[#F25C05] text-white rounded-[50rem] mx-3 my-3 font-semibold"
-                            @tap="onChoosePicture(0)">Выбрать фото из
-                            галереи</Button>
-                        <Button class="bg-[#969696] text-white rounded-[50rem] mx-3 font-semibold"
-                            @tap="onTakePicture(0)">Сделать
-                            снимок</Button>
-                    </StackLayout>
-                    <TextView v-model="steps[0].text" hint="Напишите что-нибудь..." class="mx-4 my-2 p-2" />
-                </StackLayout>
-                <StackLayout class="bg-[#E9E9ED] rounded-lg p-2 mt-10 mx-3">
-                    <Label class="font-semibold text-xl text-center py-4">Ингредиенты</Label>
-                    <StackLayout v-for="(item, index) in ingredients" class="my-2" orientation="horizontal">
-                        <TextField class="p-2 mx-1 rounded text-md bg-[#fff] w-45" hint="Ингредиент">
-                        </TextField>
-                        <TextField class="p-2 mx-1 rounded text-md bg-[#fff]" hint="Сколько">
-                        </TextField>
-                        <TextField @tap.once="newIngredient" class="p-2 mx-1 rounded text-md bg-[#fff]" hint="Ед. изм.">
-                        </TextField>
-                    </StackLayout>
-                </StackLayout>
+        <StackLayout class="mb-6">
+          <Image v-if="steps[0].photoAsset" :src="steps[0].photoAsset" class="w-full h-48 rounded-lg mb-2" stretch="aspectFill" />
+          <StackLayout v-else class="bg-[#E9E9ED] p-8 rounded-lg border-2 border-dashed border-gray-400 items-center">
+            <Button text="Галерея" @tap="onChoosePicture(0)" class="bg-[#F25C05] text-white rounded-full p-2 w-40 mb-2" />
+            <Button text="Камера" @tap="onTakePicture(0)" class="bg-[#969696] text-white rounded-full p-2 w-40" />
+          </StackLayout>
+          <TextView v-model="steps[0].text" hint="Краткое описание рецепта..." class="bg-white p-4 rounded-lg mt-2" />
+        </StackLayout>
 
-                <StackLayout v-for="(item, index) in steps.slice(1)" orientation="horizontal">
-                    <StackLayout orientation="horizontal" class="rounded-lg bg-[#E9E9ED] m-3">
+        <StackLayout class="bg-[#E9E9ED] rounded-lg p-4 mb-6">
+          <Label text="Ингредиенты" class="font-bold text-lg text-center mb-4" />
+          <StackLayout v-for="(item, index) in ingredients" :key="index" orientation="horizontal" class="mb-2">
+            <TextField v-model="item.name" class="bg-white p-2 rounded w-1/2 mr-1" hint="Название" />
+            <TextField v-model="item.amount" keyboardType="number" class="bg-white p-2 rounded w-1/4 mr-1" hint="Кол-во" />
+            <TextField v-model="item.unit" @focus="index === ingredients.length - 1 && newIngredient()" class="bg-white p-2 rounded w-1/4" hint="Ед. изм." />
+          </StackLayout>
+        </StackLayout>
 
-                        <Image row="0" col="0" v-if="steps[index + 1].photoAsset" :src="steps[index + 1].photoAsset"
-                            class="w-40 h-40 rounded-lg">
-                        </Image>
+        <Label text="Шаги приготовления" class="font-bold mb-2" />
+        <StackLayout v-for="(item, index) in steps.slice(1)" :key="index" class="bg-[#E9E9ED] p-4 rounded-lg mb-4">
+          <GridLayout columns="120, *" rows="auto">
+             <StackLayout col="0">
+                <Image v-if="steps[index + 1].photoAsset" :src="steps[index + 1].photoAsset" class="w-24 h-24 rounded-lg" stretch="aspectFill" />
+                <Button v-else text="Фото" @tap="onChoosePicture(index + 1)" class="bg-gray-400 text-xs text-white" />
+             </StackLayout>
+             <TextView col="1" v-model="steps[index + 1].text" hint="Что нужно сделать?" class="bg-white p-2 rounded-lg ml-2" />
+          </GridLayout>
+        </StackLayout>
+        
+        <Button text="+ Добавить шаг" @tap="addStep" class="text-[#F25C05] mb-4" />
 
-                        <StackLayout row="0" col="0" v-else=""
-                            class="bg-[#E9E9ED] p-3 rounded-lg h-[13rem] mx-4 w-50 bg-white pt-9"
-                            style="border-width: 3px; border-color: black; border-style: solid;" orientation="vertical">
-                            <Button class="bg-[#F25C05] text-white rounded-[50rem] mx-3 my-3 font-semibold"
-                                @tap="onChoosePicture(index + 1)">Галерея</Button>
-                            <Button class="bg-[#969696] text-white rounded-[50rem] mx-3 font-semibold"
-                                @tap="onTakePicture(index + 1)">Фото</Button>
-                        </StackLayout>
-
-                        <TextView @tap.once="steps.push({ photoAsset: null, text: '', imagePath: '' })"
-                            v-model="steps[index + 1].text" hint="Напишите, что делать на этом шаге..."
-                            class="mx-4 my-2 p-2" />
-                    </StackLayout>
-                </StackLayout>
-                <Button class="w-100 rounded-[50rem] font-bold text-lg bg-[#F25C05] text-white"
-                    @tap="uploadRecipe">Опубликовать</Button>
-            </StackLayout>
-        </ScrollView>
-    </Page>
+        <Button text="Опубликовать" @tap="uploadRecipe" class="bg-[#F25C05] text-white font-bold p-4 rounded-full" />
+      </StackLayout>
+    </ScrollView>
+  </Page>
 </template>
 
 <style>

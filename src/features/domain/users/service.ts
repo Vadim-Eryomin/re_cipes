@@ -19,4 +19,12 @@ export class UsersService {
   public getMyProfile(): Promise<UserRecord> {
     return this.repository.getMyProfile()
   }
+
+  public registerFcmToken(token: string): Promise<void> {
+    return this.repository.registerFcmToken(token);
+  }
+
+  public unregisterFcmToken(token: string): Promise<void> {
+    return this.repository.unregisterFcmToken(token);
+  }
 }

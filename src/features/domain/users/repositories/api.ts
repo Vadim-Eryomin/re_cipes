@@ -33,4 +33,18 @@ export class UsersApiRepository implements UsersRepository {
     if (user._tag === 'Left') throw new Error('Invalid user data')
     return importUser(user.right)
   }
+
+  async registerFcmToken(token: string): Promise<void> {
+    await this.ajaxService.post({
+      url: this.baseUrl + '/fcm/token',
+      data: { token }
+    });
+  }
+
+  async unregisterFcmToken(token: string): Promise<void> {
+    await this.ajaxService.delete({
+      url: this.baseUrl + '/fcm/token',
+      data: { token }
+    });
+  }
 }

@@ -72,6 +72,9 @@ import { defineComponent } from 'nativescript-vue';
 import Registration from './Registration.vue';
 import Main from './MainPage.vue';
 import api from '../../services/api';
+import { usersService } from '~/init/services';
+import { firebase } from '@nativescript/firebase-core';
+import { forceRegisterCurrentToken } from '~/fcm';
 
 export default defineComponent({
   data() {
@@ -104,10 +107,21 @@ export default defineComponent({
           password: this.form.password
         });
 
+        await forceRegisterCurrentToken();
+
         const token = response.access_token;
         console.log('Login successful, token:', token);
 
         api.setToken(token);
+
+        const { secureStorage } = require('~/init/storage');
+        secureStorage.setSync({ key: 'accessToken', value: token });
+
+        const fcmToken = await (firebase() as any).messaging().getToken();
+        if (fcmToken) {
+          await usersService.registerFcmToken(fcmToken);
+          console.log('FCM token registered after login');
+        }
 
         this.$navigateTo(Main, {
           transition: { name: 'slideLeft', duration: 300 },

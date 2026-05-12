@@ -1,3 +1,4 @@
 import { AjaxService } from "~/features/core/ajaxService"
+import { API_BASE_URL } from '~/config';
 
-export const ajaxService = new AjaxService('http://10.0.2.2:5000')
+export const ajaxService = new AjaxService(API_BASE_URL);

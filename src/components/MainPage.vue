@@ -214,7 +214,7 @@ onMounted(() => {
 
             <!-- Шапка поста -->
             <StackLayout orientation="horizontal" verticalAlignment="center" class="mx-4 mt-3">
-              <Image class="mr-3 rounded-full" width="65" :src="toFullUrl(post.author.avatar_url)" />
+              <Image class="mr-3 rounded-full" width="65" :src="toFullUrl(post.author.avatar_url) || '~/assets/default_avatar.jpg'" />
               <StackLayout verticalAlignment="center">
                 <Label :text="'r/' + post.community" class="text-sm font-bold" />
                 <Label :text="'@' + post.author.name" class="text-sm font-bold" />

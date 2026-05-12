@@ -28,3 +28,5 @@ typings/
 !.vscode/extensions.json
 
 *.db
+firebase-service-key.json
+backend/uploads

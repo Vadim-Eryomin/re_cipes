@@ -1,6 +1,7 @@
 import { Http, HttpResponse } from '@nativescript/core';
+import { API_BASE_URL } from '~/config';
 
-const BASE_URL = 'http://10.0.2.2:5000';
+const BASE_URL = API_BASE_URL;
 
 class ApiService {
   private token: string = '';

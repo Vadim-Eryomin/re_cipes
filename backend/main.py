@@ -1,10 +1,14 @@
 import os
 import uuid
+import time
+import threading
 import datetime
+import firebase_admin
 from flask import Flask, request, jsonify, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+from firebase_admin import credentials, messaging
 
 # --- Конфигурация ---
 app = Flask(__name__)
@@ -13,6 +17,18 @@ app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{os.path.join(BASE_DIR, "soc
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = os.path.join(BASE_DIR, 'uploads')
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max limit
+
+cred_path = os.path.join(BASE_DIR, 'firebase-service-key.json')
+
+if os.path.exists(cred_path):
+    try:
+        cred = credentials.Certificate(cred_path)
+        firebase_admin.initialize_app(cred)
+        print("Firebase успешно инициализирован при старте.")
+    except Exception as e:
+        print(f"Ошибка инициализации Firebase: {e}")
+else:
+    print(f"Файл {cred_path} не найден")
 
 # Создаем папку для загрузок, если нет
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -30,6 +46,8 @@ class User(db.Model):
     avatar_url = db.Column(db.String(256), nullable=True)
     bio = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    last_seen = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    last_inactivity_notification = db.Column(db.DateTime, nullable=True)
 
     posts = db.relationship('Post', backref='author', lazy=True)
     comments = db.relationship('Comment', backref='author', lazy=True)
@@ -74,6 +92,13 @@ class Like(db.Model):
     user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
     __table_args__ = (db.UniqueConstraint('post_id', 'user_id', name='unique_like'),)
 
+class FcmToken(db.Model):
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
+    token = db.Column(db.String(512), unique=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+
+    user = db.relationship('User', backref=db.backref('fcm_tokens', lazy=True))
 
 # --- Хелперы ---
 
@@ -142,6 +167,37 @@ def serialize_comment(comment):
         "created_at": comment.created_at.isoformat() + "Z"
     }
 
+def send_push_notification(user_id, title, body, data=None):
+    if not firebase_admin._apps:
+        return
+
+    token_records = FcmToken.query.filter_by(user_id=user_id).all()
+    tokens = [t.token for t in token_records]
+    
+    if not tokens:
+        return
+
+    string_data = {}
+    if data:
+        for key, value in data.items():
+            string_data[str(key)] = str(value)
+
+    message = messaging.MulticastMessage(
+        notification=messaging.Notification(title=title, body=body),
+        data=string_data,
+        tokens=tokens,
+        android=messaging.AndroidConfig(priority='high'),
+        apns=messaging.APNSConfig(payload=messaging.APNSPayload(aps=messaging.Aps(sound='default')))
+    )
+
+    response = messaging.send_each_for_multicast(message)
+    if response.failure_count > 0:
+        for idx, resp in enumerate(response.responses):
+            if not resp.success:
+                token_to_remove = tokens[idx]
+                FcmToken.query.filter_by(token=token_to_remove).delete()
+        
+        db.session.commit()
 
 # --- Routes: Users ---
 
@@ -171,6 +227,10 @@ def login():
 
     if not user or not check_password_hash(user.password_hash, data.get('password')):
         return jsonify({"error": "Invalid credentials"}), 401
+    
+    user.last_seen = datetime.datetime.utcnow()
+    user.last_inactivity_notification = None
+    db.session.commit()
 
     # Создаем или получаем бессрочный токен
     token_obj = AuthToken.query.filter_by(user_id=user.id).first()
@@ -182,6 +242,21 @@ def login():
 
     return jsonify({"access_token": token_obj.token}), 200
 
+@app.route('/users/refresh', methods=['POST'])
+def refresh_token():
+    data = request.get_json()
+
+    refresh_token = data.get('refresh_token')
+
+    token_obj = AuthToken.query.filter_by(token=refresh_token).first()
+
+    if not token_obj:
+        return jsonify({"error": "Invalid refresh token"}), 401
+
+    return jsonify({
+        "access_token": token_obj.token,
+        "refresh_token": token_obj.token
+    }), 200
 
 @app.route('/users/<user_id>', methods=['GET'])
 @require_auth
@@ -224,18 +299,29 @@ def create_post():
     user = request.current_user
     data = request.get_json()
 
+    post_text = data.get('text', '')
+    recipe_steps = data.get('recipe', [])
+    ingredients_list = data.get('ingredients', [])
+    medias_list = data.get('medias', [])
+    community_name = data.get('community', 'general')
+
     post = Post(
         user_id=user.id,
-        text=data.get('text', ''),
-        community=data.get('community'),
-        recipe=data.get('recipe'),
-        ingredients=data.get('ingredients'),
-        medias=data.get('medias'),
+        text=post_text,
+        community=community_name,
+        recipe=recipe_steps,
+        ingredients=ingredients_list,
+        medias=medias_list,
         disable_comments=data.get('disable_comments', False)
     )
-    db.session.add(post)
-    db.session.commit()
-    return jsonify(serialize_post(post)), 201
+    
+    try:
+        db.session.add(post)
+        db.session.commit()
+        return jsonify(serialize_post(post)), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route('/posts/<post_id>', methods=['GET'])
@@ -320,6 +406,13 @@ def add_comment(post_id):
     comment = Comment(post_id=post_id, user_id=user.id, text=data.get('text', ''))
     db.session.add(comment)
     db.session.commit()
+    if post.user_id != user.id:
+        send_push_notification(
+            post.user_id,
+            "Новый комментарий 💬",
+            f"{user.name} оставил комментарий: {comment.text[:50]}...",
+            {"postId": post_id, "commentId": comment.id, "type": "comment"}
+        )
     return jsonify(serialize_comment(comment)), 201
 
 
@@ -381,6 +474,15 @@ def like_post(post_id):
         like = Like(post_id=post_id, user_id=user.id)
         db.session.add(like)
         db.session.commit()
+        
+        if post.user_id != user.id:
+            print(f"DEBUG: Attempting to notify user {post.user_id}")
+            send_push_notification(
+                post.user_id,
+                "Новый лайк 👍",
+                f"{user.name} лайкнул ваш рецепт",
+                {"postId": post_id, "type": "like"}
+            )
 
     return jsonify({"likes_count": len(post.likes)}), 200
 
@@ -403,21 +505,22 @@ def unlike_post(post_id):
 
 @app.route('/media/upload', methods=['POST'])
 def upload_media():
-    print('gotcha')
-    print(request.files)
-    if 'file' not in request.files:
-        return jsonify({"error": "No file part"}), 400
+    file = None
+    if 'file' in request.files:
+        file = request.files['file']
+    
+    if not file:
+        return jsonify({"error": "No file provided"}), 400
 
-    file = request.files['file']
     if file.filename == '':
-        return jsonify({"error": "No selected file"}), 400
+        filename = f"upload_{int(time.time())}.jpg"
+    else:
+        filename = secure_filename(file.filename)
 
-    filename = secure_filename(file.filename)
-    # Добавляем уникальность имени
     unique_filename = f"{uuid.uuid4()}_{filename}"
-    file.save(os.path.join(app.config['UPLOAD_FOLDER'], unique_filename))
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+    file.save(file_path)
 
-    # Возвращаем URL (в реальном проекте тут должен быть домен)
     url = f"/static/uploads/{unique_filename}"
     return jsonify({"url": url}), 200
 
@@ -425,6 +528,68 @@ def upload_media():
 @app.route('/static/uploads/<path:filename>')
 def uploaded_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+
+# --- Routes: FCM ---
+
+@app.route('/users/fcm/token', methods=['POST'])
+@require_auth
+def register_fcm_token():
+    data = request.get_json()
+    token = data.get('token')
+    if not token:
+        return jsonify({"error": "Token required"}), 400
+
+    existing = FcmToken.query.filter_by(token=token).first()
+    if existing:
+        return jsonify({"message": "Token already registered"}), 200
+
+    fcm_token = FcmToken(user_id=request.current_user.id, token=token)
+    db.session.add(fcm_token)
+    db.session.commit()
+    return jsonify({"message": "Token registered"}), 200
+
+@app.route('/users/fcm/token', methods=['DELETE'])
+@require_auth
+def unregister_fcm_token():
+    data = request.get_json()
+    token = data.get('token')
+    if not token:
+        return jsonify({"error": "Token required"}), 400
+
+    fcm_token = FcmToken.query.filter_by(token=token, user_id=request.current_user.id).first()
+    if fcm_token:
+        db.session.delete(fcm_token)
+        db.session.commit()
+    return jsonify({"message": "Token unregistered"}), 200
+
+
+def inactivity_worker():
+    while True:
+        try:
+            with app.app_context():
+                now = datetime.datetime.utcnow()
+                threshold_active = now - datetime.timedelta(minutes=1)
+                threshold_reminder = now - datetime.timedelta(hours=24)
+
+                users = User.query.filter(
+                    User.last_seen < threshold_active,
+                    (User.last_inactivity_notification == None) | 
+                    (User.last_inactivity_notification < threshold_reminder)
+                ).all()
+
+                for user in users:
+                    send_push_notification(
+                        user.id,
+                        "Мы скучаем 👋",
+                        "Возвращайтесь и откройте новые рецепты для себя!"
+                    )
+                    user.last_inactivity_notification = now
+                db.session.commit()
+        except Exception as e:
+            print("Inactivity worker error:", e)
+
+        time.sleep(60)
 
 # --- Заполнение БД моками ---
 
@@ -520,4 +685,5 @@ if __name__ == '__main__':
     with app.app_context():
         db.create_all()
         seed_database()
+        threading.Thread(target=inactivity_worker, daemon=True).start()
     app.run(host="0.0.0.0", port=5000, debug=False)

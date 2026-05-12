@@ -218,7 +218,7 @@ onMounted(() => {
           <!-- Профиль -->
           <ActivityIndicator v-if="isLoadingProfile" busy="true" class="m-10" />
           <StackLayout v-else-if="profile" class="profile-header" orientation="horizontal" verticalAlignment="center">
-            <Image class="mx-4 mt-3 mb-2" width="90" borderRadius="45" :src="toFullUrl(profile.avatarUrl)" />
+            <Image class="mx-4 mt-3 mb-2" width="90" borderRadius="45" :src="toFullUrl(profile.avatarUrl) || '~/assets/default_avatar.jpg'" />
             <StackLayout class="mr-4" verticalAlignment="center">
               <Label :text="profile.name" class="text-sm font-bold" />
               <Label :text="'Аккаунт создан: ' + formatDate(profile?.created_at)" class="text-sm text-gray-500" />
@@ -234,7 +234,7 @@ onMounted(() => {
           <StackLayout v-for="post in userPosts" :key="post.id" class="mb-6">
             <!-- Шапка поста -->
             <StackLayout orientation="horizontal" verticalAlignment="center">
-              <Image class="mx-4 mt-3 mb-2 rounded-full" width="65" :src="toFullUrl(post.author.avatar_url)" />
+              <Image class="mx-4 mt-3 mb-2 rounded-full" width="65" :src="toFullUrl(post.author.avatar_url) || '~/assets/default_avatar.jpg'" />
               <StackLayout class="mr-4" verticalAlignment="center">
                 <Label :text="post.author.name" class="text-sm font-bold" />
               </StackLayout>
