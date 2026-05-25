@@ -1,6 +1,8 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
-from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity, verify_jwt_in_request
+from flask_jwt_extended.exceptions import NoAuthorizationError
+from sqlalchemy import func
 import bcrypt
 from werkzeug.utils import secure_filename
 import os
@@ -150,6 +152,7 @@ class Comment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     recipe_id = db.Column(db.Integer, db.ForeignKey('recipes.id'), nullable=False)
     author_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    parent_id = db.Column(db.Integer, db.ForeignKey('comments.id'), nullable=True)
 
     content = db.Column(db.Text, nullable=False)
 
@@ -162,7 +165,52 @@ class Comment(db.Model):
 
     def __repr__(self):
         return f'<Comment {self.id} by User {self.author_id} on Recipe {self.recipe_id}>'
-    
+
+
+class RecipeVote(db.Model):
+    __tablename__ = 'recipe_votes'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    recipe_id = db.Column(db.Integer, db.ForeignKey('recipes.id'), nullable=False)
+    value = db.Column(db.Integer, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'recipe_id', name='uq_user_recipe_vote'),
+    )
+
+
+def get_optional_user_id():
+    try:
+        verify_jwt_in_request(optional=True)
+        return get_jwt_identity()
+    except NoAuthorizationError:
+        return None
+
+
+def image_public_path(image):
+    if not image or not image.path:
+        return None
+    normalized = image.path.replace('\\', '/')
+    if normalized.startswith('uploads/'):
+        return '/' + normalized
+    return '/uploads/' + os.path.basename(normalized)
+
+
+def recipe_score(recipe_id):
+    total = db.session.query(func.coalesce(func.sum(RecipeVote.value), 0)).filter_by(
+        recipe_id=recipe_id
+    ).scalar()
+    return int(total or 0)
+
+
+def user_recipe_vote(recipe_id, user_id):
+    if not user_id:
+        return None
+    vote = RecipeVote.query.filter_by(user_id=user_id, recipe_id=recipe_id).first()
+    return vote.value if vote else None
+
+
 @app.route('/register', methods=['POST'])
 def register():
     data = request.json
@@ -211,6 +259,7 @@ def image_to_dict(image):
     return {
         "id": image.id,
         "path": image.path,
+        "url": image_public_path(image),
         "created_at": image.created_at.isoformat()
     }
 
@@ -257,12 +306,16 @@ def comment_to_dict(comment):
     return {
         "id": comment.id,
         "content": comment.content,
+        "parent_id": comment.parent_id,
         "author": user_to_dict(comment.author),
         "created_at": comment.created_at.isoformat(),
         "updated_at": comment.updated_at.isoformat()
     }
 
-def recipe_to_dict(recipe, include_comments=True):
+def recipe_to_dict(recipe, include_comments=True, user_id=None):
+    if user_id is None:
+        user_id = get_optional_user_id()
+
     data = {
         "id": recipe.id,
         "title": recipe.title,
@@ -273,7 +326,10 @@ def recipe_to_dict(recipe, include_comments=True):
         "ingredients": [ingredient_to_dict(i) for i in recipe.ingredients],
         "steps": [step_to_dict(s) for s in recipe.steps],
         "created_at": recipe.created_at.isoformat(),
-        "updated_at": recipe.updated_at.isoformat()
+        "updated_at": recipe.updated_at.isoformat(),
+        "comments_count": Comment.query.filter_by(recipe_id=recipe.id).count(),
+        "score": recipe_score(recipe.id),
+        "user_vote": user_recipe_vote(recipe.id, user_id),
     }
 
     if include_comments:
@@ -308,6 +364,32 @@ def upload_image():
     }), 201
 
 
+@app.route('/users/me', methods=['GET'])
+@jwt_required()
+def get_user():
+    user_id = get_jwt_identity()
+    user = User.query.get_or_404(user_id)
+    return jsonify(user_to_dict(user)), 200
+
+
+@app.route('/users/me', methods=['DELETE'])
+@jwt_required()
+def delete_user():
+    user_id = get_jwt_identity()
+    user = User.query.get_or_404(user_id)
+
+    for recipe in Recipe.query.filter_by(author_id=user_id).all():
+        RecipeVote.query.filter_by(recipe_id=recipe.id).delete()
+        db.session.delete(recipe)
+
+    RecipeVote.query.filter_by(user_id=user_id).delete()
+    Comment.query.filter_by(author_id=user_id).delete()
+    db.session.delete(user)
+    db.session.commit()
+
+    return jsonify({"msg": "User deleted"}), 200
+
+
 @app.route('/users/me', methods=['PATCH'])
 @jwt_required()
 def update_user():
@@ -315,6 +397,10 @@ def update_user():
     user = User.query.get_or_404(user_id)
 
     data = request.get_json() or {}
+
+    new_name = data.get("name")
+    if new_name:
+        user.name = new_name
 
     new_login = data.get("login")
     new_password = data.get("password")
@@ -344,6 +430,20 @@ def update_user():
     db.session.commit()
 
     return jsonify(user_to_dict(user)), 200
+
+
+@app.route('/threads', methods=['GET'])
+def list_threads():
+    q = request.args.get('q', '').strip().lower()
+    threads = Thread.query.order_by(Thread.title.asc()).all()
+
+    if q:
+        threads = [t for t in threads if q in t.title.lower()]
+
+    return jsonify([
+        {**thread_to_dict(t), "recipes_count": len(t.recipes)}
+        for t in threads
+    ]), 200
 
 
 @app.route('/threads', methods=['POST'])
@@ -388,6 +488,91 @@ def delete_thread(thread_id):
     db.session.delete(thread)
     db.session.commit()
     return jsonify({"msg": "Thread deleted"}), 200
+
+@app.route('/recipes', methods=['GET'])
+def list_recipes():
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+    thread_id = request.args.get('thread_id', type=int)
+
+    query = Recipe.query
+    if thread_id:
+        query = query.filter_by(thread_id=thread_id)
+
+    pagination = query.order_by(Recipe.created_at.desc()).paginate(
+        page=page, per_page=per_page, error_out=False
+    )
+    user_id = get_optional_user_id()
+
+    return jsonify({
+        "items": [
+            recipe_to_dict(r, include_comments=False, user_id=user_id)
+            for r in pagination.items
+        ],
+        "page": pagination.page,
+        "pages": pagination.pages,
+        "per_page": pagination.per_page,
+        "total": pagination.total,
+    }), 200
+
+
+@app.route('/recipes/me', methods=['GET'])
+@jwt_required()
+def my_recipes():
+    user_id = get_jwt_identity()
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+
+    pagination = Recipe.query.filter_by(author_id=user_id).order_by(
+        Recipe.created_at.desc()
+    ).paginate(page=page, per_page=per_page, error_out=False)
+
+    return jsonify({
+        "items": [
+            recipe_to_dict(r, include_comments=False, user_id=user_id)
+            for r in pagination.items
+        ],
+        "page": pagination.page,
+        "pages": pagination.pages,
+        "per_page": pagination.per_page,
+        "total": pagination.total,
+    }), 200
+
+
+@app.route('/recipes/<int:recipe_id>/vote', methods=['POST'])
+@jwt_required()
+def vote_recipe(recipe_id):
+    Recipe.query.get_or_404(recipe_id)
+    user_id = get_jwt_identity()
+    action = (request.get_json() or {}).get('action')
+
+    if action not in ('up', 'down'):
+        return jsonify({"msg": "action must be 'up' or 'down'"}), 400
+
+    vote = RecipeVote.query.filter_by(user_id=user_id, recipe_id=recipe_id).first()
+
+    if action == 'up':
+        if vote and vote.value == 1:
+            db.session.delete(vote)
+        elif vote and vote.value == -1:
+            vote.value = 1
+        else:
+            db.session.add(RecipeVote(user_id=user_id, recipe_id=recipe_id, value=1))
+    else:
+        if vote and vote.value == -1:
+            db.session.delete(vote)
+        elif vote and vote.value == 1:
+            vote.value = -1
+        else:
+            db.session.add(RecipeVote(user_id=user_id, recipe_id=recipe_id, value=-1))
+
+    db.session.commit()
+
+    return jsonify({
+        "score": recipe_score(recipe_id),
+        "user_vote": user_recipe_vote(recipe_id, user_id),
+    }), 200
+
 
 @app.route('/recipes', methods=['POST'])
 @jwt_required()
@@ -549,14 +734,21 @@ def create_comment(recipe_id):
 
     data = request.get_json()
     content = data.get("content")
+    parent_id = data.get("parent_id")
 
     if not content:
         return jsonify({"msg": "Content is required"}), 400
 
+    if parent_id:
+        parent = Comment.query.get(parent_id)
+        if not parent or parent.recipe_id != recipe.id:
+            return jsonify({"msg": "Parent comment not found"}), 404
+
     comment = Comment(
         recipe_id=recipe.id,
         author_id=user_id,
-        content=content
+        content=content,
+        parent_id=parent_id,
     )
     db.session.add(comment)
     db.session.commit()
@@ -615,6 +807,11 @@ def get_comments(recipe_id):
         "per_page": pagination.per_page,
         "total": pagination.total
     }), 200
+
+
+@app.route('/uploads/<path:filename>')
+def serve_upload(filename):
+    return send_from_directory(UPLOAD_FOLDER, filename)
 
 
 if __name__ == '__main__':
