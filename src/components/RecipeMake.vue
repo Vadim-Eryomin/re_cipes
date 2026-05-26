@@ -22,7 +22,8 @@ import { Dialogs } from '@nativescript/core';
 import { $navigateTo } from 'nativescript-vue';
 import BottomNav from './BottomNav.vue';
 import MainPage from './MainPage.vue';
-import api, { BASE_URL } from '../../services/api';
+import api from '../../services/api';
+import { API_BASE_URL } from '~/config';
 
 type Ingredient = { name: string, amount: string, unit: string }
 type Step = { photoAsset: any | null, text: string, imagePath: string, imageId?: number }
@@ -156,7 +157,7 @@ async function onTakePicture(index: number) {
 
             let s = session('upload-image');
             const task = s.multipartUpload([{ name: 'file', filename: filepath, mimeType: 'image/jpeg' }], {
-                url: `${BASE_URL}/images`,
+                url: `${API_BASE_URL}/images`,
                 method: "POST",
                 headers: uploadHeaders(),
                 description: "Uploading image from camera"
@@ -203,7 +204,7 @@ async function onChoosePicture(index: number) {
 
             let s = session('upload-image');
             const task = s.multipartUpload([{ name: 'file', filename: filepath, mimeType: 'image/jpeg' }], {
-                url: `${BASE_URL}/images`,
+                url: `${API_BASE_URL}/images`,
                 method: "POST",
                 headers: uploadHeaders(),
                 description: "Uploading image from gallery"

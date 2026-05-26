@@ -1,6 +1,8 @@
 import { Http, HttpResponse } from '@nativescript/core';
+import { API_BASE_URL } from '~/config';
+import { secureStorage } from '~/init/storage';
 
-export const BASE_URL = 'http://10.0.2.2:5000';
+const BASE_URL = API_BASE_URL;
 
 export function mediaUrl(path: string | null | undefined): string {
   if (!path) return '';
@@ -16,8 +18,7 @@ class ApiService {
   private token: string = '';
 
   constructor() {
-    const { ApplicationSettings } = require('@nativescript/core');
-    this.token = ApplicationSettings.getString('token', '');
+    this.token = secureStorage.getSync({ key: 'accessToken' }) || '';
   }
 
   getToken(): string {
@@ -26,14 +27,12 @@ class ApiService {
 
   setToken(token: string) {
     this.token = token;
-    const { ApplicationSettings } = require('@nativescript/core');
-    ApplicationSettings.setString('token', token);
+    secureStorage.setSync({ key: 'accessToken', value: token });
   }
 
   clearToken() {
     this.token = '';
-    const { ApplicationSettings } = require('@nativescript/core');
-    ApplicationSettings.remove('token');
+    secureStorage.removeSync({ key: 'accessToken' });
   }
 
   private getHeaders(contentType = 'application/json'): Record<string, string> {

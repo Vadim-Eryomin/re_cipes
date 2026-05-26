@@ -15,4 +15,6 @@ export interface UsersRepository {
   login(request: UserLoginReq): Promise<UserTokens>
   signup(request: UserSignupReq): Promise<void>
   getMyProfile(): Promise<UserRecord>
+  registerFcmToken(token: string): Promise<void>;
+  unregisterFcmToken(token: string): Promise<void>;
 }

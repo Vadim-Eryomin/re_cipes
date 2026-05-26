@@ -7,13 +7,30 @@ import bcrypt
 from werkzeug.utils import secure_filename
 import os
 from datetime import timedelta, timezone, datetime
+import firebase_admin
+from firebase_admin import credentials, messaging
+import threading
+import time
+import uuid
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'  # заменяй на свой DB
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-app.config['JWT_SECRET_KEY'] = 'super-secret-key'  # поменяй на свой защищённый ключ
+app.config['JWT_SECRET_KEY'] = 'super-secret-key-very-long-and-secure-1234567890'  # поменяй на свой защищённый ключ
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=1)
+
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+cred_path = os.path.join(BASE_DIR, 'firebase-service-key.json')
+if os.path.exists(cred_path):
+    try:
+        cred = credentials.Certificate(cred_path)
+        firebase_admin.initialize_app(cred)
+        print("Firebase successfully initialized")
+    except Exception as e:
+        print(f"Firebase init error: {e}")
+else:
+    print(f"Firebase key not found at {cred_path}")
 
 db = SQLAlchemy(app)
 jwt = JWTManager(app)
@@ -42,6 +59,9 @@ class User(db.Model):
 
     created_at = db.Column(db.DateTime, default=now, nullable=False)
     updated_at = db.Column(db.DateTime, default=now, onupdate=now, nullable=False)
+
+    last_seen = db.Column(db.DateTime, default=now, nullable=False)
+    last_inactivity_notification = db.Column(db.DateTime, nullable=True)
 
     # Связь с изображением профиля пользователя
     image = db.relationship('Image', lazy=True)
@@ -180,11 +200,28 @@ class RecipeVote(db.Model):
     )
 
 
+class FcmToken(db.Model):
+    __tablename__ = 'fcm_tokens'
+
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    token = db.Column(db.String(512), unique=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=now, nullable=False)
+
+    user = db.relationship('User', backref=db.backref('fcm_tokens', lazy=True))
+
+
+def update_last_seen(user_id):
+    user = User.query.get(user_id)
+    if user:
+        user.last_seen = now()
+        db.session.commit()
+
 def get_optional_user_id():
     try:
         verify_jwt_in_request(optional=True)
-        return get_jwt_identity()
-    except NoAuthorizationError:
+        return int(get_jwt_identity())
+    except (NoAuthorizationError, ValueError, TypeError):
         return None
 
 
@@ -249,9 +286,16 @@ def login():
         return jsonify({"msg": "Invalid login or password"}), 401
 
     # Создаем JWT токен (в payload положим user_id)
-    access_token = create_access_token(identity=user.id)
+    access_token = create_access_token(identity=str(user.id))
 
     return jsonify(access_token=access_token), 200
+
+@app.route('/users/refresh', methods=['POST'])
+@jwt_required()
+def refresh():
+    user_id = int(get_jwt_identity())
+    new_token = create_access_token(identity=str(user_id))
+    return jsonify(access_token=new_token), 200
 
 def image_to_dict(image):
     if not image:
@@ -337,12 +381,45 @@ def recipe_to_dict(recipe, include_comments=True, user_id=None):
 
     return data
 
+def send_push_notification(user_id, title, body, data=None):
+    if not firebase_admin._apps:
+        return
+
+    token_records = FcmToken.query.filter_by(user_id=user_id).all()
+    tokens = [t.token for t in token_records]
+    if not tokens:
+        return
+
+    string_data = {}
+    if data:
+        for key, value in data.items():
+            string_data[str(key)] = str(value)
+
+    message = messaging.MulticastMessage(
+        notification=messaging.Notification(title=title, body=body),
+        data=string_data,
+        tokens=tokens,
+        android=messaging.AndroidConfig(priority='high'),
+        apns=messaging.APNSConfig(payload=messaging.APNSPayload(aps=messaging.Aps(sound='default')))
+    )
+
+    response = messaging.send_each_for_multicast(message)
+    if response.failure_count > 0:
+        for idx, resp in enumerate(response.responses):
+            if not resp.success:
+                token_to_remove = tokens[idx]
+                FcmToken.query.filter_by(token=token_to_remove).delete()
+        db.session.commit()
+
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 @app.route('/images', methods=['POST'])
 @jwt_required()
 def upload_image():
+    user_id = int(get_jwt_identity())
+    update_last_seen(user_id)
+
     if 'file' not in request.files:
         return jsonify({"msg": "File is required"}), 400
 
@@ -367,7 +444,8 @@ def upload_image():
 @app.route('/users/me', methods=['GET'])
 @jwt_required()
 def get_user():
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
+    update_last_seen(user_id)
     user = User.query.get_or_404(user_id)
     return jsonify(user_to_dict(user)), 200
 
@@ -375,7 +453,8 @@ def get_user():
 @app.route('/users/me', methods=['DELETE'])
 @jwt_required()
 def delete_user():
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
+    update_last_seen(user_id)
     user = User.query.get_or_404(user_id)
 
     for recipe in Recipe.query.filter_by(author_id=user_id).all():
@@ -393,7 +472,8 @@ def delete_user():
 @app.route('/users/me', methods=['PATCH'])
 @jwt_required()
 def update_user():
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
+    update_last_seen(user_id)
     user = User.query.get_or_404(user_id)
 
     data = request.get_json() or {}
@@ -449,6 +529,8 @@ def list_threads():
 @app.route('/threads', methods=['POST'])
 @jwt_required()
 def create_thread():
+    user_id = int(get_jwt_identity())
+    update_last_seen(user_id)
     data = request.get_json()
     title = data.get("title")
 
@@ -465,6 +547,8 @@ def create_thread():
 @app.route('/threads/<int:thread_id>', methods=['PATCH'])
 @jwt_required()
 def update_thread(thread_id):
+    user_id = int(get_jwt_identity())
+    update_last_seen(user_id)
     thread = Thread.query.get_or_404(thread_id)
     data = request.get_json()
 
@@ -479,6 +563,8 @@ def update_thread(thread_id):
 @app.route('/threads/<int:thread_id>', methods=['DELETE'])
 @jwt_required()
 def delete_thread(thread_id):
+    user_id = int(get_jwt_identity())
+    update_last_seen(user_id)
     thread = Thread.query.get_or_404(thread_id)
 
     # лучше не удалять, если есть рецепты
@@ -519,7 +605,8 @@ def list_recipes():
 @app.route('/recipes/me', methods=['GET'])
 @jwt_required()
 def my_recipes():
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
+    update_last_seen(user_id)
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 20, type=int)
 
@@ -542,31 +629,48 @@ def my_recipes():
 @app.route('/recipes/<int:recipe_id>/vote', methods=['POST'])
 @jwt_required()
 def vote_recipe(recipe_id):
-    Recipe.query.get_or_404(recipe_id)
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
+    update_last_seen(user_id)
+    recipe = Recipe.query.get_or_404(recipe_id)
     action = (request.get_json() or {}).get('action')
 
     if action not in ('up', 'down'):
         return jsonify({"msg": "action must be 'up' or 'down'"}), 400
 
     vote = RecipeVote.query.filter_by(user_id=user_id, recipe_id=recipe_id).first()
+    previous_value = vote.value if vote else 0
+    new_value = 0
 
     if action == 'up':
         if vote and vote.value == 1:
             db.session.delete(vote)
+            new_value = 0
         elif vote and vote.value == -1:
             vote.value = 1
+            new_value = 1
         else:
             db.session.add(RecipeVote(user_id=user_id, recipe_id=recipe_id, value=1))
+            new_value = 1
     else:
         if vote and vote.value == -1:
             db.session.delete(vote)
+            new_value = 0
         elif vote and vote.value == 1:
             vote.value = -1
+            new_value = -1
         else:
             db.session.add(RecipeVote(user_id=user_id, recipe_id=recipe_id, value=-1))
+            new_value = -1
 
     db.session.commit()
+
+    if action == 'up' and new_value == 1 and recipe.author_id != user_id:
+        send_push_notification(
+            recipe.author_id,
+            "Новый лайк 👍",
+            f"{User.query.get(user_id).name} лайкнул ваш рецепт",
+            {"postId": str(recipe_id), "type": "like"}
+        )
 
     return jsonify({
         "score": recipe_score(recipe_id),
@@ -577,7 +681,8 @@ def vote_recipe(recipe_id):
 @app.route('/recipes', methods=['POST'])
 @jwt_required()
 def create_recipe():
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
+    update_last_seen(user_id)
     data = request.get_json()
 
     title = data.get("title")
@@ -646,7 +751,8 @@ def get_recipe(recipe_id):
 @app.route('/recipes/<int:recipe_id>', methods=['PATCH'])
 @jwt_required()
 def update_recipe(recipe_id):
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
+    update_last_seen(user_id)
     recipe = Recipe.query.get_or_404(recipe_id)
 
     if recipe.author_id != user_id:
@@ -713,7 +819,8 @@ def update_recipe(recipe_id):
 @app.route('/recipes/<int:recipe_id>', methods=['DELETE'])
 @jwt_required()
 def delete_recipe(recipe_id):
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
+    update_last_seen(user_id)
     recipe = Recipe.query.get_or_404(recipe_id)
 
     if recipe.author_id != user_id:
@@ -729,7 +836,8 @@ def delete_recipe(recipe_id):
 @app.route('/recipes/<int:recipe_id>/comments', methods=['POST'])
 @jwt_required()
 def create_comment(recipe_id):
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
+    update_last_seen(user_id)
     recipe = Recipe.query.get_or_404(recipe_id)
 
     data = request.get_json()
@@ -753,12 +861,21 @@ def create_comment(recipe_id):
     db.session.add(comment)
     db.session.commit()
 
+    if recipe.author_id != user_id:
+        send_push_notification(
+            recipe.author_id,
+            "Новый комментарий 💬",
+            f"{User.query.get(user_id).name} оставил комментарий: {content[:50]}...",
+            {"postId": str(recipe_id), "type": "comment"}
+        )
+
     return jsonify(comment_to_dict(comment)), 201
 
 @app.route('/comments/<int:comment_id>', methods=['PATCH'])
 @jwt_required()
 def update_comment(comment_id):
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
+    update_last_seen(user_id)
     comment = Comment.query.get_or_404(comment_id)
 
     if comment.author_id != user_id:
@@ -778,7 +895,8 @@ def update_comment(comment_id):
 @app.route('/comments/<int:comment_id>', methods=['DELETE'])
 @jwt_required()
 def delete_comment(comment_id):
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
+    update_last_seen(user_id)
     comment = Comment.query.get_or_404(comment_id)
 
     if comment.author_id != user_id:
@@ -808,13 +926,72 @@ def get_comments(recipe_id):
         "total": pagination.total
     }), 200
 
-
 @app.route('/uploads/<path:filename>')
 def serve_upload(filename):
     return send_from_directory(UPLOAD_FOLDER, filename)
 
+@app.route('/users/fcm/token', methods=['POST'])
+@jwt_required()
+def register_fcm_token():
+    user_id = int(get_jwt_identity())
+    data = request.get_json()
+    token = data.get('token')
+    if not token:
+        return jsonify({"error": "Token required"}), 400
+
+    existing = FcmToken.query.filter_by(token=token).first()
+    if existing:
+        return jsonify({"message": "Token already registered"}), 200
+
+    fcm_token = FcmToken(user_id=user_id, token=token)
+    db.session.add(fcm_token)
+    db.session.commit()
+    return jsonify({"message": "Token registered"}), 200
+
+@app.route('/users/fcm/token', methods=['DELETE'])
+@jwt_required()
+def unregister_fcm_token():
+    user_id = int(get_jwt_identity())
+    data = request.get_json()
+    token = data.get('token')
+    if not token:
+        return jsonify({"error": "Token required"}), 400
+
+    fcm_token = FcmToken.query.filter_by(token=token, user_id=user_id).first()
+    if fcm_token:
+        db.session.delete(fcm_token)
+        db.session.commit()
+    return jsonify({"message": "Token unregistered"}), 200
+
+def inactivity_worker():
+    while True:
+        try:
+            with app.app_context():
+                now_utc = now()
+                threshold_active = now_utc - timedelta(hours=24)
+                threshold_reminder = now_utc - timedelta(hours=24)
+
+                users = User.query.filter(
+                    User.last_seen < threshold_active,
+                    (User.last_inactivity_notification == None) |
+                    (User.last_inactivity_notification < threshold_reminder)
+                ).all()
+
+                for user in users:
+                    send_push_notification(
+                        user.id,
+                        "Мы скучаем 👋",
+                        "Возвращайтесь и откройте новые рецепты для себя!"
+                    )
+                    user.last_inactivity_notification = now_utc
+                db.session.commit()
+        except Exception as e:
+            print("Inactivity worker error:", e)
+
+        time.sleep(60)
 
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
-    app.run(debug=True)
+        threading.Thread(target=inactivity_worker, daemon=True).start()
+    app.run(host="0.0.0.0", port=5000, debug=True)
