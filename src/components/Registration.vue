@@ -176,6 +176,9 @@ import { defineComponent } from 'nativescript-vue';
 import Login from './Login.vue';
 import Main from './MainPage.vue';
 import api from '../../services/api';
+import { firebase } from '@nativescript/firebase-core';
+import { usersService } from '~/init/services';
+import { forceRegisterCurrentToken } from '~/fcm';
 
 interface FormData {
   fullname: string;
@@ -318,6 +321,13 @@ export default defineComponent({
 
         const token = loginResponse.access_token;
         api.setToken(token);
+
+        await forceRegisterCurrentToken();
+
+        const fcmToken = await (firebase() as any).messaging().getToken();
+        if (fcmToken) {
+          await usersService.registerFcmToken(fcmToken);
+        }
 
         this.$navigateTo(Main, {
           transition: { name: 'slideLeft', duration: 300 },

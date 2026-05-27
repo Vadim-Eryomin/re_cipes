@@ -1,9 +1,15 @@
 <script lang="ts" setup>
-import { GridLayout, Image, Label, ScrollView, StackLayout, TextField, FlexboxLayout, ActivityIndicator, ListView } from '@nativescript/core';
+import { Image, Label, ScrollView, StackLayout, TextField, FlexboxLayout, ActivityIndicator, ListView } from '@nativescript/core';
 import { ref, onMounted } from "nativescript-vue"
 import BottomNav from './BottomNav.vue';
 import { $navigateTo } from 'nativescript-vue';
 import MainPage from './MainPage.vue';
+import api, { mediaUrl } from '../../services/api';
+import {
+  mapRecipeToDetail,
+  mapCommentToUi,
+  buildCommentsTree,
+} from '../../services/recipeUi';
 
 const props = defineProps<{ postId: string }>()
 
@@ -13,60 +19,7 @@ const newCommentText = ref('')
 const commentsTree = ref<any[]>([])
 const activeTab = ref('main')
 const replyTexts = ref<{ [key: string]: string }>({})
-
-const testIngredients = [
-  { name: 'Мука', quantity: '200', unit: 'г' },
-  { name: 'Яйца', quantity: '2', unit: 'шт' },
-  { name: 'Молоко', quantity: '500', unit: 'мл' },
-  { name: 'Сахар', quantity: '2', unit: 'ст.л' },
-  { name: 'Соль', quantity: '1', unit: 'щепотка' },
-  { name: 'Растительное масло', quantity: '2', unit: 'ст.л' }
-]
-
-const testSteps = [
-  { order: 1, description: 'В большой миске взбейте яйца с сахаром и солью', image: '~/assets/step1.png' },
-  { order: 2, description: 'Добавьте половину молока и перемешайте', image: '~/assets/step2.png' },
-  { order: 3, description: 'Постепенно добавляйте муку, постоянно помешивая, чтобы не было комков', image: '~/assets/step3.png' }
-]
-
-const testComments = [
-  {
-    id: '1',
-    user: '@mili_Vasya',
-    userAvatar: '~/assets/test1.png',
-    text: 'Отличный рецепт! Обязательно попробую 🥞',
-    date: '1 дн. назад',
-    createdAt: new Date(Date.now() - 86400000),
-    parent_id: null
-  },
-  {
-    id: '2',
-    user: '@chef_anton',
-    userAvatar: '~/assets/test1.png',
-    text: 'Спасибо за рецепт! Всё очень понятно и вкусно',
-    date: '12 ч. назад',
-    createdAt: new Date(Date.now() - 43200000),
-    parent_id: null
-  },
-  {
-    id: '3',
-    user: '@food_lover',
-    userAvatar: '~/assets/test1.png',
-    text: 'Легко и быстро получилось. Вся семья в восторге)',
-    date: '3 ч. назад',
-    createdAt: new Date(Date.now() - 10800000),
-    parent_id: null
-  },
-  {
-    id: '4',
-    user: '@home_cook',
-    userAvatar: '~/assets/test1.png',
-    text: 'А можно заменить молоко на растительное?',
-    date: '2 ч. назад',
-    createdAt: new Date(Date.now() - 7200000),
-    parent_id: '1'
-  }
-]
+const currentUserAvatar = ref('')
 
 function goBack() {
   $navigateTo(MainPage, {
@@ -78,28 +31,6 @@ function toFullUrl(path: string | null | undefined): string {
   if (!path) return ''
   if (path.startsWith('http://') || path.startsWith('https://')) return path
   return path
-}
-
-function formatDate(createdAt: string | Date | undefined): string {
-  if (!createdAt) return 'только что'
-  const date = typeof createdAt === 'string' ? new Date(createdAt) : createdAt
-  if (isNaN(date.getTime())) return 'только что'
-
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
-
-  if (diffDays === 0) {
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
-    if (diffHours === 0) {
-      const diffMinutes = Math.floor(diffMs / (1000 * 60))
-      return diffMinutes < 1 ? 'только что' : `${diffMinutes} мин назад`
-    }
-    return `${diffHours} ч назад`
-  }
-
-  if (diffDays === 1) return '1 дн. назад'
-  return `${diffDays} дн. назад`
 }
 
 function formatVotes(value: number): string {
@@ -114,149 +45,88 @@ function voteColor(value: number): string {
   return ''
 }
 
-function voteUp() {
+async function voteUp() {
   if (!post.value) return
-  
-  if (post.value.userLiked) {
-    post.value.likes--
-    post.value.userLiked = false
-  } else {
-    if (post.value.userDisliked) {
-      post.value.likes++
-      post.value.userDisliked = false
-    }
-    post.value.likes++
-    post.value.userLiked = true
+  try {
+    const result = await api.voteRecipe(props.postId, 'up')
+    post.value.likes = result.score
+    post.value.userLiked = result.user_vote === 1
+    post.value.userDisliked = result.user_vote === -1
+  } catch (e) {
+    console.error('Vote failed:', e)
   }
 }
 
-function voteDown() {
+async function voteDown() {
   if (!post.value) return
-
-  if (post.value.userDisliked) {
-    post.value.likes++
-    post.value.userDisliked = false
-  } else {
-    if (post.value.userLiked) {
-      post.value.likes--
-      post.value.userLiked = false
-    }
-    post.value.likes--
-    post.value.userDisliked = true
+  try {
+    const result = await api.voteRecipe(props.postId, 'down')
+    post.value.likes = result.score
+    post.value.userLiked = result.user_vote === 1
+    post.value.userDisliked = result.user_vote === -1
+  } catch (e) {
+    console.error('Vote failed:', e)
   }
 }
 
-function addComment() {
+async function reloadComments() {
+  const commentsResp = await api.getComments(props.postId)
+  const flat = (commentsResp.items || []).map(mapCommentToUi)
+  commentsTree.value = buildCommentsTree(flat)
+  if (post.value) {
+    post.value.comments = commentsResp.total ?? flat.length
+  }
+}
+
+async function addComment() {
   if (!newCommentText.value || !newCommentText.value.trim()) return
-  
-  const newComment = {
-    id: Date.now().toString(),
-    user: '@current_user',
-    userAvatar: '~/assets/test1.png',
-    text: newCommentText.value,
-    date: formatDate(new Date()),
-    createdAt: new Date(),
-    parent_id: null,
-    replies: []
+  try {
+    await api.addComment(props.postId, newCommentText.value.trim())
+    newCommentText.value = ''
+    await reloadComments()
+  } catch (e) {
+    console.error('Add comment failed:', e)
   }
-  
-  commentsTree.value.unshift(newComment)
-  post.value.comments++
-  newCommentText.value = ''
 }
 
-function addReply(commentId: string) {
+async function addReply(commentId: string) {
   const replyText = replyTexts.value[commentId]
   if (!replyText || !replyText.trim()) return
-  
-  const newReply = {
-    id: Date.now().toString(),
-    user: '@current_user',
-    userAvatar: '~/assets/test1.png',
-    text: replyText,
-    date: formatDate(new Date()),
-    createdAt: new Date(),
-    parent_id: commentId,
-    replies: []
+  try {
+    await api.addComment(props.postId, replyText.trim(), parseInt(commentId, 10))
+    replyTexts.value[commentId] = ''
+    await reloadComments()
+  } catch (e) {
+    console.error('Add reply failed:', e)
   }
-  
-  const addReplyToComment = (comments: any[]): boolean => {
-    for (let comment of comments) {
-      if (comment.id === commentId) {
-        if (!comment.replies) comment.replies = []
-        comment.replies.push(newReply)
-        post.value.comments++
-        return true
-      }
-      if (comment.replies && addReplyToComment(comment.replies)) {
-        return true
-      }
-    }
-    return false
-  }
-  
-  addReplyToComment(commentsTree.value)
-  replyTexts.value[commentId] = ''
 }
 
-function buildCommentsTree(flatComments: any[]): any[] {
-  const map = new Map()
-  const roots: any[] = []
-  
-  flatComments.forEach((comment: any) => {
-    map.set(comment.id, { ...comment, replies: [] })
-  })
-  
-  flatComments.forEach((comment: any) => {
-    const node = map.get(comment.id)
-    if (comment.parent_id && map.has(comment.parent_id)) {
-      map.get(comment.parent_id).replies.push(node)
-    } else {
-      roots.push(node)
-    }
-  })
-  
-  roots.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-  roots.forEach((root: any) => {
-    if (root.replies && root.replies.length) {
-      root.replies.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-    }
-  })
-  return roots
-}
-
-function loadData() {
+async function loadData() {
   loading.value = true
-  
-  post.value = {
-    id: props.postId,
-    userAvatar: '~/assets/test1.png',
-    topic: 'r/recipes',
-    userName: '@mili_Vasya',
-    date: formatDate(new Date()),
-    title: 'Я сделала блины, зацените. Очень быстро и просто готовится. Займет не больше 10 минут. Рецепт моей любимой бабушки',
-    image: '~/assets/post1.png',
-    likes: 24,
-    comments: testComments.length,
-    userLiked: false,
-    userDisliked: false,
-    ingredients: testIngredients,
-    steps: testSteps,
-    commentsList: testComments
+  try {
+    const [recipe, me] = await Promise.all([
+      api.getRecipe(props.postId),
+      api.getMe().catch(() => null),
+    ])
+
+    post.value = mapRecipeToDetail(recipe)
+
+    if (me?.image) {
+      currentUserAvatar.value = mediaUrl(me.image.url || me.image.path)
+    }
+
+    if (recipe.comments?.length) {
+      const flat = recipe.comments.map(mapCommentToUi)
+      commentsTree.value = buildCommentsTree(flat)
+    } else {
+      await reloadComments()
+    }
+  } catch (e) {
+    console.error('Failed to load recipe:', e)
+    post.value = null
+  } finally {
+    loading.value = false
   }
-  
-  const formattedComments = testComments.map((comment: any) => ({
-    id: comment.id,
-    user: comment.user,
-    avatar: comment.userAvatar,
-    time: comment.date,
-    text: comment.text,
-    parent_id: comment.parent_id,
-    created_at: comment.createdAt
-  }))
-  
-  commentsTree.value = buildCommentsTree(formattedComments)
-  loading.value = false
 }
 
 onMounted(() => {
@@ -346,7 +216,7 @@ onMounted(() => {
               <Label text="Комментарии" class="text-white font-bold text-[16px] mb-3" />
               
               <FlexboxLayout flexDirection="row" alignItems="center" class="mb-4">
-                <Image src="~/assets/test1.png" width="40" height="40" class="rounded-full"/>
+                <Image :src="currentUserAvatar || '~/assets/test1.png'" width="40" height="40" class="rounded-full"/>
                 <TextField v-model="newCommentText" hint="Напишите, что думаете..." fontSize="12"
                   class="bg-[#1E1E1E] text-white rounded-2xl ml-3 px-4 py-2 flex-1" height="40"/>
                 <Image src="~/assets/post.png" width="30" height="30" class="ml-2" @tap="addComment" />

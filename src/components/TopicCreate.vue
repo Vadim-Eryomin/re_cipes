@@ -16,6 +16,7 @@ import { ref } from "nativescript-vue";
 import { $navigateTo } from 'nativescript-vue';
 import BottomNav from './BottomNav.vue';
 import MainPage from './MainPage.vue';
+import api from '../../services/api';
 
 const topicName = ref('')
 const topicDescription = ref('')
@@ -78,21 +79,24 @@ async function createTopic() {
     if (!confirm) return
     
     isLoading.value = true
-    
-    setTimeout(() => {
-        isLoading.value = false
-        Dialogs.alert({
+
+    try {
+        await api.createThread(formattedName)
+        await Dialogs.alert({
             title: 'Успешно',
             message: `Топик "${formattedName}" создан`,
             okButtonText: 'OK'
-        }).then(() => {
-            $navigateTo(MainPage, {
-                props: { initialTopic: formattedName },
-                transition: { name: "slideLeft" },
-                clearHistory: false
-            })
         })
-    }, 1000)
+        $navigateTo(MainPage, {
+            transition: { name: "slideLeft" },
+            clearHistory: false
+        })
+    } catch (e: any) {
+        console.error('Create topic failed:', e)
+        error.value = e?.response?.data?.msg || 'Не удалось создать топик'
+    } finally {
+        isLoading.value = false
+    }
 }
 
 function onTopicNameChange(args: any) {

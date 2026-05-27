@@ -1,15 +1,18 @@
 <script lang="ts" setup>
-import { GridLayout, Image, Label, ScrollView, StackLayout, TextField, FlexboxLayout } from '@nativescript/core';
+import { Image, Label, ScrollView, StackLayout, TextField, FlexboxLayout, ActivityIndicator } from '@nativescript/core';
 import { ref, onMounted, computed } from "nativescript-vue"
 import { $navigateTo } from 'nativescript-vue'
 import Recipe from './Recipe.vue';
 import BottomNav from './BottomNav.vue';
-import { samplePosts, type Post } from './data/posts';
+import api from '../../services/api';
+import { mapRecipeToFeedPost, type FeedPost } from '../../services/recipeUi';
 
-const posts = ref<Post[]>(samplePosts)
+const posts = ref<FeedPost[]>([])
 const searchQuery = ref('')
 const showSearchResults = ref(false)
 const activeTab = ref('main')
+const loading = ref(true)
+const error = ref('')
 
 function getTopicName(topic: string): string {
   return topic.replace(/^r\//, '').toLowerCase()
@@ -47,9 +50,7 @@ const filteredPosts = computed(() => {
 })
 
 function toFullUrl(path: string | null | undefined): string {
-  if (!path) return ''
-  if (path.startsWith('http://') || path.startsWith('https://')) return path
-  return path
+  return path || ''
 }
 
 function formatVotes(value: number): string {
@@ -64,37 +65,31 @@ function voteColor(value: number): string {
   return ''
 }
 
-function voteUp(postId: string) {
-  const post = posts.value.find(p => p.id === postId)
-  if (!post) return
-
-  if (post.userLiked) {
-    post.likes--
-    post.userLiked = false
-  } else {
-    if (post.userDisliked) {
-      post.likes++
-      post.userDisliked = false
+async function voteUp(postId: string) {
+  try {
+    const result = await api.voteRecipe(postId, 'up')
+    const post = posts.value.find(p => p.id === postId)
+    if (post) {
+      post.likes = result.score
+      post.userLiked = result.user_vote === 1
+      post.userDisliked = result.user_vote === -1
     }
-    post.likes++
-    post.userLiked = true
+  } catch (e) {
+    console.error('Vote up failed:', e)
   }
 }
 
-function voteDown(postId: string) {
-  const post = posts.value.find(p => p.id === postId)
-  if (!post) return
-
-  if (post.userDisliked) {
-    post.likes++
-    post.userDisliked = false
-  } else {
-    if (post.userLiked) {
-      post.likes--
-      post.userLiked = false
+async function voteDown(postId: string) {
+  try {
+    const result = await api.voteRecipe(postId, 'down')
+    const post = posts.value.find(p => p.id === postId)
+    if (post) {
+      post.likes = result.score
+      post.userLiked = result.user_vote === 1
+      post.userDisliked = result.user_vote === -1
     }
-    post.likes--
-    post.userDisliked = true
+  } catch (e) {
+    console.error('Vote down failed:', e)
   }
 }
 
@@ -116,7 +111,22 @@ function selectTopic(topic: string) {
   showSearchResults.value = false
 }
 
+async function loadPosts() {
+  loading.value = true
+  error.value = ''
+  try {
+    const data = await api.listRecipes(1, 50)
+    posts.value = (data.items || []).map(mapRecipeToFeedPost)
+  } catch (e: any) {
+    console.error('Failed to load feed:', e)
+    error.value = 'Не удалось загрузить ленту. Проверьте, запущен ли сервер.'
+  } finally {
+    loading.value = false
+  }
+}
+
 onMounted(() => {
+  loadPosts()
 })
 </script>
 
@@ -136,7 +146,11 @@ onMounted(() => {
             </GridLayout>
           </StackLayout>
 
-          <StackLayout v-if="showSearchResults && filteredTopics.length > 0" class="bg-[#1E1E1E] rounded-xl mb-4">
+          <ActivityIndicator v-if="loading" busy="true" color="#F25C05" class="m-10" />
+
+          <Label v-else-if="error" :text="error" class="text-[#DE6C35] text-center mt-10 text-[14px]" textWrap="true" />
+
+          <StackLayout v-else-if="showSearchResults && filteredTopics.length > 0" class="bg-[#1E1E1E] rounded-xl mb-4">
             <Label text="Топики" class="text-[#C7C7C7] text-[12px] px-4 pt-3 pb-1" />
             <StackLayout v-for="item in filteredTopics" :key="item.topic" 
               @tap="() => selectTopic(item.topic)" class="px-4 py-3 border-b border-[#393939]">
@@ -184,8 +198,8 @@ onMounted(() => {
             <StackLayout v-if="index < filteredPosts.length - 1" height="1" backgroundColor="#393939" />
           </StackLayout>
 
-          <Label v-if="filteredPosts.length === 0 && !showSearchResults && searchQuery" 
-            text="Нет постов в этом топике" 
+          <Label v-if="!loading && !error && filteredPosts.length === 0" 
+            :text="searchQuery ? 'Нет постов в этом топике' : 'Пока нет рецептов'" 
             class="text-[#C7C7C7] text-[14px] text-center mt-10" />
         </FlexboxLayout>
       </ScrollView>
