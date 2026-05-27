@@ -44,6 +44,7 @@ import { defineComponent } from 'nativescript-vue';
 import RecipeMake from './RecipeMake.vue';
 import Profile from './Profile.vue';
 import TopicCreate from './TopicCreate.vue';
+import MainPage from './MainPage.vue';
 
 export default defineComponent({
     props: {
@@ -68,7 +69,10 @@ export default defineComponent({
                     });
                     break;
                 case 'main':
-                    console.log('Главный');
+                    this.$navigateTo(MainPage, {
+                        transition: { name: 'fade', duration: 300 }
+                    });
+                    break;
                     break;
                 case 'recipes':
                     console.log('ReCipes');
